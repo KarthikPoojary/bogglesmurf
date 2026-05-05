@@ -3,5 +3,5 @@ import App from '../App'
 
 test('renders BoggleSmurf heading', () => {
   render(<App />)
-  expect(screen.getByText('BoggleSmurf')).toBeInTheDocument()
+  expect(screen.getByText(/BoggleSmurf/)).toBeInTheDocument()
 })

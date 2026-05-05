@@ -1,39 +1,106 @@
-function App() {
+import { useEffect, useRef, useState } from 'react'
+import { GridSizeSelector } from './components/GridSizeSelector'
+import { BoggleGrid } from './components/BoggleGrid'
+import { LengthRangeSlider } from './components/LengthRangeSlider'
+import { ResultsPanel } from './components/ResultsPanel'
+import { useBoggleStore } from './store/boggleStore'
+import { loadDictionary } from './solver/loadDictionary'
+import { solve } from './solver/solver'
+import type { Trie } from './solver/Trie'
+import type { Solution } from './solver/solver'
+
+export default function App() {
+  const {
+    gridSize, letters, minLen, maxLen,
+    solutions, selectedWord,
+    clearGrid, setSolutions, setIsSolving,
+  } = useBoggleStore()
+
+  const trieRef = useRef<Trie | null>(null)
+  const [dictLoading, setDictLoading] = useState(true)
+  const [dictError, setDictError] = useState(false)
+
+  useEffect(() => {
+    loadDictionary()
+      .then((t) => { trieRef.current = t; setDictLoading(false) })
+      .catch(() => { setDictError(true); setDictLoading(false) })
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !dictLoading && gridFilled) handleSolve()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const handleSolve = () => {
+    if (!trieRef.current) return
+    const grid = letters.map((row) => row.map((l) => l || ' '))
+    setIsSolving(true)
+    // setTimeout lets React flush the "Solving…" state before the synchronous DFS
+    setTimeout(() => {
+      const results = solve(grid, trieRef.current!, minLen, maxLen)
+      setSolutions(results)
+      setIsSolving(false)
+    }, 0)
+  }
+
+  const selectedSolution: Solution | null =
+    solutions.find((s) => s.word === selectedWord) ?? null
+
+  const gridFilled = letters.flat().filter(Boolean).length === gridSize * gridSize
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6 gap-6">
+      {/* Header */}
       <div className="text-center">
-        <div className="text-8xl mb-4">🍄</div>
-        <h1 className="text-4xl font-bold tracking-tight text-slate-100 sm:text-5xl">
-          BoggleSmurf
-        </h1>
-        <p className="mt-3 text-lg text-slate-400">
-          Find every word hiding in a Boggle grid.
-        </p>
-        <p className="mt-1 text-sm text-slate-500">
-          Because losing quietly is worse than losing.
-        </p>
+        <h1 className="text-3xl font-bold tracking-tight">🍄 BoggleSmurf</h1>
+        {dictLoading && <p className="text-xs text-slate-500 mt-1">Loading dictionary…</p>}
+        {dictError && <p className="text-xs text-red-400 mt-1">Dictionary failed to load</p>}
+        {!dictLoading && !dictError && (
+          <p className="text-xs text-emerald-600 mt-1">238k words ready</p>
+        )}
       </div>
 
-      <div className="flex gap-3 flex-wrap justify-center">
-        <span className="rounded-full bg-emerald-900/40 px-3 py-1 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/30">
-          Tailwind ✓
-        </span>
-        <span className="rounded-full bg-blue-900/40 px-3 py-1 text-xs font-medium text-blue-400 ring-1 ring-blue-500/30">
-          React 19 ✓
-        </span>
-        <span className="rounded-full bg-violet-900/40 px-3 py-1 text-xs font-medium text-violet-400 ring-1 ring-violet-500/30">
-          TypeScript ✓
-        </span>
-        <span className="rounded-full bg-amber-900/40 px-3 py-1 text-xs font-medium text-amber-400 ring-1 ring-amber-500/30">
-          Vite 8 ✓
-        </span>
+      {/* Grid size + length filter */}
+      <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+        <GridSizeSelector />
+        <LengthRangeSlider />
       </div>
 
-      <p className="text-xs text-slate-600 mt-4">
-        Phase 0 scaffold — solver and grid UI coming next
+      {/* Grid */}
+      <BoggleGrid selectedSolution={selectedSolution} />
+
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={handleSolve}
+          disabled={dictLoading || !gridFilled}
+          className="px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm
+            hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors
+            min-w-[100px]"
+        >
+          Solve
+        </button>
+        <button
+          onClick={clearGrid}
+          className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm
+            hover:bg-slate-700 transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+
+      {/* Keyboard hint */}
+      <p className="text-[11px] text-slate-600 -mt-3">
+        Tab / arrows to navigate · Enter to solve
       </p>
+
+      {/* Results */}
+      <div className="w-full max-w-sm">
+        <ResultsPanel />
+      </div>
     </div>
   )
 }
-
-export default App

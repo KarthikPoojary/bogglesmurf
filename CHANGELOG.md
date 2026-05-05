@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-05 (POC — WordPathOverlay pending)
+
+### Added
+- `src/store/boggleStore.ts` — Zustand store, gridSize/minLen/maxLen persisted to localStorage
+- `src/components/GridSizeSelector.tsx` — 4×4 / 5×5 / 6×6 segmented control
+- `src/components/BoggleGrid.tsx` — auto-advance focus, backspace, arrow keys, path step badges
+- `src/components/LengthRangeSlider.tsx` — dual range sliders, 3–12
+- `src/components/ResultsPanel.tsx` — words grouped by length with Boggle scores, copy-all
+- `src/App.tsx` — full wiring: dictionary load on mount, Solve/Clear, Enter hotkey
+- `CONTEXT.md` — session handoff file with full project status for new sessions
+
+### Missing (next session first task)
+- `src/components/WordPathOverlay.tsx` — animated SVG stroke through grid path
+
 ## [0.1.0] - 2026-05-05
 
 ### Added
