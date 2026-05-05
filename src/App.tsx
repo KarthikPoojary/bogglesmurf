@@ -3,6 +3,7 @@ import { GridSizeSelector } from './components/GridSizeSelector'
 import { BoggleGrid } from './components/BoggleGrid'
 import { LengthRangeSlider } from './components/LengthRangeSlider'
 import { ResultsPanel } from './components/ResultsPanel'
+import { OcrCapture } from './components/OcrCapture'
 import { useBoggleStore } from './store/boggleStore'
 import { loadDictionary } from './solver/loadDictionary'
 import { solve } from './solver/solver'
@@ -19,6 +20,7 @@ export default function App() {
   const trieRef = useRef<Trie | null>(null)
   const [dictLoading, setDictLoading] = useState(true)
   const [dictError, setDictError] = useState(false)
+  const [showOcr, setShowOcr] = useState(false)
 
   useEffect(() => {
     loadDictionary()
@@ -26,25 +28,24 @@ export default function App() {
       .catch(() => { setDictError(true); setDictLoading(false) })
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !dictLoading && gridFilled) handleSolve()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
   const handleSolve = () => {
     if (!trieRef.current) return
     const grid = letters.map((row) => row.map((l) => l || ' '))
     setIsSolving(true)
-    // setTimeout lets React flush the "Solving…" state before the synchronous DFS
     setTimeout(() => {
       const results = solve(grid, trieRef.current!, minLen, maxLen)
       setSolutions(results)
       setIsSolving(false)
     }, 0)
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !dictLoading && gridFilled && !showOcr) handleSolve()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const selectedSolution: Solution | null =
     solutions.find((s) => s.word === selectedWord) ?? null
@@ -53,6 +54,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6 gap-6">
+
       {/* Header */}
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight">🍄 BoggleSmurf</h1>
@@ -69,6 +71,15 @@ export default function App() {
         <LengthRangeSlider />
       </div>
 
+      {/* Scan button — above the grid, full attention */}
+      <button
+        onClick={() => setShowOcr(true)}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-emerald-700 bg-emerald-950/60
+          text-emerald-300 text-sm font-medium hover:bg-emerald-900/60 transition-colors"
+      >
+        📷 Scan Grid with Camera
+      </button>
+
       {/* Grid */}
       <BoggleGrid selectedSolution={selectedSolution} />
 
@@ -78,29 +89,29 @@ export default function App() {
           onClick={handleSolve}
           disabled={dictLoading || !gridFilled}
           className="px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm
-            hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors
-            min-w-[100px]"
+            hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[100px]"
         >
           Solve
         </button>
         <button
           onClick={clearGrid}
-          className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm
-            hover:bg-slate-700 transition-colors"
+          className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors"
         >
           Clear
         </button>
       </div>
 
-      {/* Keyboard hint */}
       <p className="text-[11px] text-slate-600 -mt-3">
         Tab / arrows to navigate · Enter to solve
       </p>
 
       {/* Results */}
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm pb-8">
         <ResultsPanel />
       </div>
+
+      {/* OCR modal */}
+      {showOcr && <OcrCapture onClose={() => setShowOcr(false)} />}
     </div>
   )
 }
