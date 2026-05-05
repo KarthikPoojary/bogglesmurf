@@ -25,7 +25,18 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,txt}'],
+        // Precache app shell; dictionary uses runtime caching (it's 3 MB — too large for precache)
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        runtimeCaching: [
+          {
+            urlPattern: /\/dictionary\.txt$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'dictionary-v1',
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
+        ],
       },
     }),
   ],
