@@ -9,11 +9,13 @@ export interface SyncStatus {
   error: string | null
 }
 
-// Connect to the sync server running on the same host, port 5174
 function getSyncUrl(): string {
-  const host = window.location.hostname
-  return `ws://${host}:5174`
+  return `ws://${window.location.hostname}:5174`
 }
+
+const BACKOFF_BASE = 2000   // start at 2s
+const BACKOFF_MAX = 30000   // cap at 30s
+const MAX_FAST_FAILURES = 3 // after 3 instant failures, assume server not running → stop
 
 export function useGridSync() {
   const { letters, gridSize, setLetter, setGridSize } = useBoggleStore()
@@ -37,24 +39,31 @@ export function useGridSync() {
         setLetter(r, c, remoteLetters[r]?.[c] ?? '')
       }
     }
-    // Allow local changes to broadcast again after a tick
     setTimeout(() => { isApplyingRemote.current = false }, 50)
   }, [setGridSize, setLetter])
 
   useEffect(() => {
-    let ws: WebSocket
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let destroyed = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let attempt = 0
+    let fastFailures = 0  // connections that closed before onopen fired
 
     function connect() {
+      if (destroyed) return
+
+      let openFired = false
+      let ws: WebSocket
       try {
         ws = new WebSocket(getSyncUrl())
-        wsRef.current = ws
       } catch {
-        return  // Not available (production build, etc.)
+        return // WebSocket not available (SSR, etc.)
       }
+      wsRef.current = ws
 
       ws.onopen = () => {
+        openFired = true
+        attempt = 0
+        fastFailures = 0
         setStatus((s) => ({ ...s, connected: true, error: null }))
         pingInterval.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
@@ -72,9 +81,7 @@ export function useGridSync() {
             sessionActive: true,
             remainingMs: msg.remainingMs as number,
           }))
-          if (!msg.isHost) {
-            applyRemoteGrid(msg.letters as string[][], msg.gridSize as number)
-          }
+          if (!msg.isHost) applyRemoteGrid(msg.letters as string[][], msg.gridSize as number)
         } else if (msg.type === 'no-session') {
           setStatus((s) => ({ ...s, sessionActive: false, remainingMs: 0 }))
         } else if (msg.type === 'session-ended') {
@@ -88,14 +95,24 @@ export function useGridSync() {
       }
 
       ws.onclose = () => {
-        if (pingInterval.current) clearInterval(pingInterval.current)
+        if (pingInterval.current) { clearInterval(pingInterval.current); pingInterval.current = null }
         setStatus((s) => ({ ...s, connected: false, sessionActive: false }))
-        if (!destroyed) reconnectTimer = setTimeout(connect, 3000)
+
+        if (!openFired) fastFailures++
+
+        // If the server has never been reachable after several attempts, stop retrying.
+        // User is running `pnpm dev` without the sync server — that's fine.
+        if (fastFailures >= MAX_FAST_FAILURES) return
+
+        if (!destroyed) {
+          // Exponential backoff: 2s, 4s, 8s … capped at 30s
+          const delay = Math.min(BACKOFF_BASE * 2 ** attempt, BACKOFF_MAX)
+          attempt++
+          reconnectTimer = setTimeout(connect, delay)
+        }
       }
 
-      ws.onerror = () => {
-        // Silently fail — sync server is optional (not available in production)
-      }
+      ws.onerror = () => { /* swallow — onclose handles retry */ }
     }
 
     connect()
@@ -108,7 +125,6 @@ export function useGridSync() {
     }
   }, [applyRemoteGrid])
 
-  // Broadcast grid changes to the server when this client is host
   const broadcastGrid = useCallback(() => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN || isApplyingRemote.current) return
