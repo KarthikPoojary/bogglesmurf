@@ -32,6 +32,12 @@ export default function App() {
       .catch(() => { setDictError(true); setDictLoading(false) })
   }, [])
 
+  // Derived state — declared before any useEffect that reads them
+  const gridFilled = letters.flat().filter(Boolean).length === gridSize * gridSize
+  const selectedSolution: Solution | null =
+    solutions.find((s) => s.word === selectedWord) ?? null
+  const isWatcher = syncStatus.sessionActive && !syncStatus.isHost
+
   const handleSolve = () => {
     if (!trieRef.current) return
     const grid = letters.map((row) => row.map((l) => l || ' '))
@@ -50,14 +56,6 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-
-  const selectedSolution: Solution | null =
-    solutions.find((s) => s.word === selectedWord) ?? null
-
-  const gridFilled = letters.flat().filter(Boolean).length === gridSize * gridSize
-
-  // Watchers can't edit the grid
-  const isWatcher = syncStatus.sessionActive && !syncStatus.isHost
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6 gap-5">
