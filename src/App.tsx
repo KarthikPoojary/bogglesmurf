@@ -4,7 +4,9 @@ import { BoggleGrid } from './components/BoggleGrid'
 import { LengthRangeSlider } from './components/LengthRangeSlider'
 import { ResultsPanel } from './components/ResultsPanel'
 import { OcrCapture } from './components/OcrCapture'
+import { SyncBanner } from './components/SyncBanner'
 import { useBoggleStore } from './store/boggleStore'
+import { useGridSync } from './hooks/useGridSync'
 import { loadDictionary } from './solver/loadDictionary'
 import { solve } from './solver/solver'
 import type { Trie } from './solver/Trie'
@@ -21,6 +23,8 @@ export default function App() {
   const [dictLoading, setDictLoading] = useState(true)
   const [dictError, setDictError] = useState(false)
   const [showOcr, setShowOcr] = useState(false)
+
+  const { status: syncStatus, broadcastGrid, endSession } = useGridSync()
 
   useEffect(() => {
     loadDictionary()
@@ -52,8 +56,11 @@ export default function App() {
 
   const gridFilled = letters.flat().filter(Boolean).length === gridSize * gridSize
 
+  // Watchers can't edit the grid
+  const isWatcher = syncStatus.sessionActive && !syncStatus.isHost
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6 gap-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6 gap-5">
 
       {/* Header */}
       <div className="text-center">
@@ -65,23 +72,43 @@ export default function App() {
         )}
       </div>
 
-      {/* Grid size + length filter */}
-      <div className="flex flex-col items-center gap-4 w-full max-w-sm">
-        <GridSizeSelector />
-        <LengthRangeSlider />
-      </div>
+      {/* Sync banner */}
+      <SyncBanner
+        status={syncStatus}
+        onShare={broadcastGrid}
+        onEndSession={endSession}
+      />
 
-      {/* Scan button — above the grid, full attention */}
-      <button
-        onClick={() => setShowOcr(true)}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-emerald-700 bg-emerald-950/60
-          text-emerald-300 text-sm font-medium hover:bg-emerald-900/60 transition-colors"
-      >
-        📷 Scan Grid with Camera
-      </button>
+      {/* Watcher notice */}
+      {isWatcher && (
+        <p className="text-xs text-slate-500 -mt-2">
+          📡 Viewing host's grid — solve when they share it
+        </p>
+      )}
+
+      {/* Controls — hidden for watchers */}
+      {!isWatcher && (
+        <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+          <GridSizeSelector />
+          <LengthRangeSlider />
+        </div>
+      )}
+
+      {/* Camera scan */}
+      {!isWatcher && (
+        <button
+          onClick={() => setShowOcr(true)}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-emerald-700 bg-emerald-950/60
+            text-emerald-300 text-sm font-medium hover:bg-emerald-900/60 transition-colors"
+        >
+          📷 Scan Grid with Camera
+        </button>
+      )}
 
       {/* Grid */}
-      <BoggleGrid selectedSolution={selectedSolution} />
+      <div className={isWatcher ? 'opacity-80 pointer-events-none' : ''}>
+        <BoggleGrid selectedSolution={selectedSolution} />
+      </div>
 
       {/* Action buttons */}
       <div className="flex gap-3">
@@ -93,17 +120,21 @@ export default function App() {
         >
           Solve
         </button>
-        <button
-          onClick={clearGrid}
-          className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors"
-        >
-          Clear
-        </button>
+        {!isWatcher && (
+          <button
+            onClick={clearGrid}
+            className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
-      <p className="text-[11px] text-slate-600 -mt-3">
-        Tab / arrows to navigate · Enter to solve
-      </p>
+      {!isWatcher && (
+        <p className="text-[11px] text-slate-600 -mt-2">
+          Tab / arrows to navigate · Enter to solve
+        </p>
+      )}
 
       {/* Results */}
       <div className="w-full max-w-sm pb-8">
