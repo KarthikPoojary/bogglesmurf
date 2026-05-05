@@ -12,7 +12,7 @@ echo "  Sync: ws://${LOCAL_IP}:5174"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Start WebSocket sync server in background
-node --experimental-vm-modules server/sync.js &
+node server/sync.js &
 SYNC_PID=$!
 
 # Trap Ctrl+C to kill both
