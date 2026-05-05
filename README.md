@@ -9,7 +9,9 @@ The name? In gaming, a *smurf* is an experienced player who jumps into a match t
 It's a personal project — built for fun, learning, and the sweet, sweet taste of a comeback win. 🏆
 
 ## 🌐 Live app
-👉 [bogglesmurf.pages.dev](https://bogglesmurf.pages.dev) *(or your final URL)*
+👉 [bogglesmurf.pages.dev](https://bogglesmurf.pages.dev) *(deployment coming soon)*
+
+→ [Changelog](https://github.com/KarthikPoojary/bogglesmurf/commits/main)
 
 ## Features
 - 📱 **Works everywhere** — iOS, Android, desktop. One URL, no install needed.
@@ -29,28 +31,6 @@ It's a personal project — built for fun, learning, and the sweet, sweet taste 
 ## Why?
 Because losing is fine, but losing *quietly* is worse. Also — "build a thing my partner and I will actually use" beats any tutorial.
 
-## 🛠 Development
-
-```bash
-# Install
-pnpm install
-
-# Dev server (also accessible from phone on local network)
-./scripts/dev.sh
-
-# Type-check
-pnpm typecheck
-
-# Lint
-pnpm lint
-
-# Tests
-pnpm test
-
-# Production build
-pnpm build
-```
-
 ## Tech Stack
 - **React 19 + TypeScript** — UI and type safety
 - **Vite 8** — blazing fast build tool with HMR
@@ -61,5 +41,12 @@ pnpm build
 - **Tesseract.js** — in-browser OCR (lazy loaded)
 - **pnpm** — faster installs, better disk usage than npm
 
-## CI/CD
-GitHub Actions runs type-check, lint, and tests on every push. Auto-deploy to Cloudflare Pages on push to `main`.
+## 🗺 Roadmap
+
+| | What |
+|---|---|
+| 🔲 | **PWA icons + offline** — proper home screen icons, full offline support after first visit |
+| 🔲 | **Cloudflare Pages deploy** — live public URL, auto-deploy from `main` |
+| 🔲 | **Polish** — dark/light mode toggle, haptic feedback, sort by length/score/alpha, settings drawer |
+| 🔲 | **Word path animation** — animated SVG stroke tracing the selected word across the grid |
+| 🔲 | **Lighthouse 90+** — performance, accessibility, best practices audit pass |
