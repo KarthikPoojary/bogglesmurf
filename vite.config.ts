@@ -36,6 +36,14 @@ export default defineConfig({
               expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 365 },
             },
           },
+          {
+            urlPattern: /\/common-words\.txt$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'common-words-v1',
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
         ],
       },
     }),
