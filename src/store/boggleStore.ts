@@ -16,6 +16,7 @@ interface BoggleState {
   solutions: Solution[]
   selectedWord: string | null
   isSolving: boolean
+  overlayAlpha: number
 
   setGridSize: (size: GridSize) => void
   setLetter: (row: number, col: number, letter: string) => void
@@ -25,6 +26,7 @@ interface BoggleState {
   setMinLen: (n: number) => void
   setMaxLen: (n: number) => void
   setIsSolving: (b: boolean) => void
+  setOverlayAlpha: (n: number) => void
 }
 
 export const useBoggleStore = create<BoggleState>()(
@@ -37,6 +39,7 @@ export const useBoggleStore = create<BoggleState>()(
       solutions: [],
       selectedWord: null,
       isSolving: false,
+      overlayAlpha: 0.85,
 
       setGridSize: (size) => set({ gridSize: size, letters: emptyGrid(size), solutions: [], selectedWord: null }),
       setLetter: (row, col, letter) => {
@@ -50,14 +53,15 @@ export const useBoggleStore = create<BoggleState>()(
       setMinLen: (minLen) => set({ minLen }),
       setMaxLen: (maxLen) => set({ maxLen }),
       setIsSolving: (isSolving) => set({ isSolving }),
+      setOverlayAlpha: (overlayAlpha) => set({ overlayAlpha }),
     }),
     {
       name: 'bogglesmurf',
-      partialize: (s) => ({ gridSize: s.gridSize, minLen: s.minLen, maxLen: s.maxLen, letters: s.letters }),
+      partialize: (s) => ({ gridSize: s.gridSize, minLen: s.minLen, maxLen: s.maxLen, letters: s.letters, overlayAlpha: s.overlayAlpha }),
       // Rebuild letters from persisted value; fall back to empty grid if not present
       // (handles old persisted data that predates letters persistence).
       merge: (persisted, current) => {
-        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number; letters?: string[][] }
+        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number; letters?: string[][]; overlayAlpha?: number }
         const size = p.gridSize ?? current.gridSize
         const letters = p.letters ?? emptyGrid(size)
         return { ...current, ...p, letters }

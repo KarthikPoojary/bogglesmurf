@@ -5,9 +5,10 @@ export interface OverlayPlugin {
   hasPermission(): Promise<{ granted: boolean }>
   requestPermission(): Promise<{ granted: boolean }>
   requestNotificationPermission(): Promise<{ granted: boolean }>
-  show(opts?: { x?: number; y?: number }): Promise<void>
+  show(): Promise<void>
   hide(): Promise<void>
-  setWords(opts: { words: string[] }): Promise<void>
+  setWords(opts: { words: string[], commonWords: string[] }): Promise<void>
+  setAlpha(opts: { alpha: number }): Promise<void>
   addListener(event: 'wordTap', cb: (e: { word: string }) => void): Promise<PluginListenerHandle>
 }
 

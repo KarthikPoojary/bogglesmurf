@@ -17,6 +17,8 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONException;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 @CapacitorPlugin(
     name = "Overlay",
@@ -33,9 +35,6 @@ public class OverlayPlugin extends Plugin {
         call.resolve(ret);
     }
 
-    // Opens the system "Display over other apps" settings screen.
-    // Resolves immediately with the current state — caller re-checks hasPermission()
-    // after the user returns from Settings (UX identical to Messenger / TrueCaller).
     @PluginMethod
     public void requestPermission(PluginCall call) {
         if (Settings.canDrawOverlays(getContext())) {
@@ -54,8 +53,7 @@ public class OverlayPlugin extends Plugin {
         call.resolve(ret);
     }
 
-    // Requests POST_NOTIFICATIONS at runtime (required on Android 13+ for the foreground
-    // service notification that keeps the overlay alive). No-op below API 33.
+    // Requests POST_NOTIFICATIONS at runtime (Android 13+). No-op below API 33.
     @PluginMethod
     public void requestNotificationPermission(PluginCall call) {
         if (Build.VERSION.SDK_INT < 33) {
@@ -83,7 +81,7 @@ public class OverlayPlugin extends Plugin {
     @PluginMethod
     public void show(PluginCall call) {
         if (!Settings.canDrawOverlays(getContext())) {
-            call.reject("SYSTEM_ALERT_WINDOW permission not granted — call requestPermission() first");
+            call.reject("SYSTEM_ALERT_WINDOW permission not granted");
             return;
         }
         startService(OverlayService.ACTION_SHOW);
@@ -99,20 +97,29 @@ public class OverlayPlugin extends Plugin {
     @PluginMethod
     public void setWords(PluginCall call) {
         JSArray wordsJson = call.getArray("words");
-        if (wordsJson == null) {
-            call.reject("words parameter is required");
-            return;
-        }
+        JSArray commonJson = call.getArray("commonWords");
+        if (wordsJson == null) { call.reject("words parameter is required"); return; }
+
         ArrayList<String> words = new ArrayList<>();
+        Set<String> common = new HashSet<>();
         try {
-            for (int i = 0; i < wordsJson.length(); i++) {
-                words.add(wordsJson.getString(i));
+            for (int i = 0; i < wordsJson.length(); i++) words.add(wordsJson.getString(i));
+            if (commonJson != null) {
+                for (int i = 0; i < commonJson.length(); i++) common.add(commonJson.getString(i));
             }
         } catch (JSONException e) {
             call.reject("Invalid words array: " + e.getMessage());
             return;
         }
-        OverlayService.setWords(words);
+        OverlayService.setWords(words, common);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setAlpha(PluginCall call) {
+        Double alpha = call.getDouble("alpha");
+        if (alpha == null) { call.reject("alpha parameter is required"); return; }
+        OverlayService.setAlpha(alpha.floatValue());
         call.resolve();
     }
 

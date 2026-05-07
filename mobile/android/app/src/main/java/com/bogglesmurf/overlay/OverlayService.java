@@ -5,9 +5,9 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.pm.ServiceInfo;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -27,7 +28,9 @@ import com.bogglesmurf.app.R;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class OverlayService extends Service {
 
@@ -36,10 +39,11 @@ public class OverlayService extends Service {
 
     private static final String CHANNEL_ID = "bogglesmurf_overlay";
     private static final int NOTIF_ID = 1001;
-    private static final int MAX_WORDS = 40;
+    private static final int MAX_WORDS = 60;
 
-    // Static state so OverlayPlugin can push words from any thread
-    private static List<String> words = Collections.emptyList();
+    private static List<String> allWords = Collections.emptyList();
+    private static Set<String> commonWordSet = new HashSet<>();
+    private static float overlayAlpha = 0.85f;
     private static OverlayService instance;
 
     private WindowManager windowManager;
@@ -47,13 +51,24 @@ public class OverlayService extends Service {
     private WindowManager.LayoutParams overlayParams;
     private ArrayAdapter<String> wordAdapter;
     private boolean isShowing = false;
+    private String currentTab = "COM";
 
-    public static void setWords(List<String> newWords) {
-        words = new ArrayList<>(newWords);
-        if (instance != null) {
-            instance.refreshWordList();
+    // ── Static setters (called from OverlayPlugin on any thread) ────────────
+
+    public static void setWords(List<String> words, Set<String> common) {
+        allWords = new ArrayList<>(words);
+        commonWordSet = new HashSet<>(common);
+        if (instance != null) instance.refreshWordList();
+    }
+
+    public static void setAlpha(float alpha) {
+        overlayAlpha = alpha;
+        if (instance != null && instance.isShowing && instance.overlayView != null) {
+            instance.overlayView.setAlpha(alpha);
         }
     }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
 
     @Override
     public void onCreate() {
@@ -83,6 +98,8 @@ public class OverlayService extends Service {
         return START_STICKY;
     }
 
+    // ── Overlay window ────────────────────────────────────────────────────────
+
     private void showOverlay() {
         if (isShowing) {
             refreshWordList();
@@ -90,14 +107,14 @@ public class OverlayService extends Service {
         }
 
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null);
+        overlayView.setAlpha(overlayAlpha);
 
         int layerType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             : WindowManager.LayoutParams.TYPE_PHONE;
 
         overlayParams = new WindowManager.LayoutParams(
-            dpToPx(180),
-            dpToPx(300),
+            dpToPx(180), dpToPx(320),
             layerType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -114,21 +131,61 @@ public class OverlayService extends Service {
         overlayView.findViewById(R.id.overlay_header)
             .setOnTouchListener(new HeaderDragListener());
 
+        // Tab click listeners
+        overlayView.findViewById(R.id.tab_com).setOnClickListener(v -> switchTab("COM"));
+        overlayView.findViewById(R.id.tab_unq).setOnClickListener(v -> switchTab("UNQ"));
+        overlayView.findViewById(R.id.tab_all).setOnClickListener(v -> switchTab("ALL"));
+
         ListView listView = overlayView.findViewById(R.id.overlay_words);
-        List<String> display = words.size() > MAX_WORDS ? words.subList(0, MAX_WORDS) : words;
-        wordAdapter = new ArrayAdapter<>(this, R.layout.overlay_word_item, new ArrayList<>(display));
+        wordAdapter = new ArrayAdapter<>(this, R.layout.overlay_word_item, new ArrayList<>());
         listView.setAdapter(wordAdapter);
 
         windowManager.addView(overlayView, overlayParams);
         isShowing = true;
+
+        refreshWordList();
+    }
+
+    private void switchTab(String tab) {
+        currentTab = tab;
+        updateTabHighlight();
+        refreshWordList();
+    }
+
+    private void updateTabHighlight() {
+        if (overlayView == null) return;
+        int[] ids = { R.id.tab_com, R.id.tab_unq, R.id.tab_all };
+        String[] tabs = { "COM", "UNQ", "ALL" };
+        for (int i = 0; i < ids.length; i++) {
+            TextView tv = overlayView.findViewById(ids[i]);
+            if (tabs[i].equals(currentTab)) {
+                tv.setBackgroundColor(0xFF312E81);
+                tv.setTextColor(0xFFC084FC);
+            } else {
+                tv.setBackgroundColor(0x00000000);
+                tv.setTextColor(0xFF64748B);
+            }
+        }
     }
 
     private void refreshWordList() {
         if (wordAdapter == null) return;
+        List<String> filtered = getTabWords();
+        List<String> display = filtered.size() > MAX_WORDS ? filtered.subList(0, MAX_WORDS) : filtered;
         wordAdapter.clear();
-        List<String> display = words.size() > MAX_WORDS ? words.subList(0, MAX_WORDS) : words;
         wordAdapter.addAll(display);
         wordAdapter.notifyDataSetChanged();
+    }
+
+    private List<String> getTabWords() {
+        List<String> result = new ArrayList<>();
+        for (String w : allWords) {
+            boolean isCommon = commonWordSet.contains(w);
+            if ("COM".equals(currentTab) && isCommon) result.add(w);
+            else if ("UNQ".equals(currentTab) && !isCommon) result.add(w);
+            else if ("ALL".equals(currentTab)) result.add(w);
+        }
+        return result;
     }
 
     private void removeOverlay() {
@@ -140,6 +197,8 @@ public class OverlayService extends Service {
             isShowing = false;
         }
     }
+
+    // ── Foreground notification ───────────────────────────────────────────────
 
     private void ensureForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -161,9 +220,9 @@ public class OverlayService extends Service {
             .setContentIntent(pi)
             .setOngoing(true)
             .build();
+
         // Android 14 (API 34) requires the foreground service type to be passed explicitly
-        // when foregroundServiceType is declared in the manifest. Using the 2-arg overload
-        // on API 34+ throws MissingForegroundServiceTypeException.
+        // when foregroundServiceType is declared in the manifest.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
@@ -171,15 +230,15 @@ public class OverlayService extends Service {
         }
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private int dpToPx(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    public IBinder onBind(Intent intent) { return null; }
 
     private class HeaderDragListener implements View.OnTouchListener {
         private float startRawX, startRawY;
@@ -195,11 +254,9 @@ public class OverlayService extends Service {
                     startParamY = overlayParams.y;
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    overlayParams.x = startParamX + (int) (startRawX - event.getRawX());
-                    overlayParams.y = startParamY + (int) (event.getRawY() - startRawY);
-                    if (overlayView != null) {
-                        windowManager.updateViewLayout(overlayView, overlayParams);
-                    }
+                    overlayParams.x = startParamX + (int)(startRawX - event.getRawX());
+                    overlayParams.y = startParamY + (int)(event.getRawY() - startRawY);
+                    if (overlayView != null) windowManager.updateViewLayout(overlayView, overlayParams);
                     return true;
             }
             return false;

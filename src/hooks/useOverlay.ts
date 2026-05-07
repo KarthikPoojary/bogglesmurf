@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { Overlay } from '../plugins/OverlayPlugin'
+import { useBoggleStore } from '../store/boggleStore'
 
 export function useOverlay() {
   const isSupported =
@@ -8,6 +9,7 @@ export function useOverlay() {
     Capacitor.isNativePlatform() &&
     Capacitor.getPlatform() === 'android'
 
+  const overlayAlpha = useBoggleStore((s) => s.overlayAlpha)
   const [hasPermission, setHasPermission] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
 
@@ -16,9 +18,7 @@ export function useOverlay() {
     Overlay.hasPermission().then(({ granted }) => setHasPermission(granted))
   }, [isSupported])
 
-  // Re-check permission when user returns from the Android Settings screen.
-  // requestPermission() opens Settings and resolves immediately with granted=false;
-  // this listener catches the app becoming visible again after the user toggles the switch.
+  // Re-check permission when user returns from Android Settings
   useEffect(() => {
     if (!isSupported) return
     const onVisible = () => {
@@ -38,23 +38,21 @@ export function useOverlay() {
   }, [isSupported])
 
   const floatWords = useCallback(
-    async (words: string[]) => {
+    async (words: string[], commonWords: string[]) => {
       if (!isSupported) return
       if (!hasPermission) {
-        // Opens Android Settings — returns false immediately.
-        // User grants the toggle, returns to app, visibilitychange re-checks,
-        // then they tap Float again to actually show the overlay.
         await requestPermission()
         return
       }
-      // Android 13+ requires POST_NOTIFICATIONS at runtime for the foreground service
-      // notification. Without it startForeground() crashes the service silently.
+      // Android 13+ requires POST_NOTIFICATIONS at runtime for the foreground
+      // service notification. Without it startForeground() crashes silently.
       await Overlay.requestNotificationPermission()
-      await Overlay.setWords({ words })
+      await Overlay.setWords({ words, commonWords })
       await Overlay.show()
+      await Overlay.setAlpha({ alpha: overlayAlpha })
       setIsVisible(true)
     },
-    [isSupported, hasPermission, requestPermission],
+    [isSupported, hasPermission, requestPermission, overlayAlpha],
   )
 
   const hideOverlay = useCallback(async () => {
@@ -63,5 +61,10 @@ export function useOverlay() {
     setIsVisible(false)
   }, [isSupported])
 
-  return { isSupported, hasPermission, isVisible, floatWords, hideOverlay }
+  const updateAlpha = useCallback(async (alpha: number) => {
+    if (!isSupported || !isVisible) return
+    await Overlay.setAlpha({ alpha })
+  }, [isSupported, isVisible])
+
+  return { isSupported, hasPermission, isVisible, floatWords, hideOverlay, updateAlpha }
 }

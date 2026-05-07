@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="180dp"
-    android:layout_height="300dp"
+    android:layout_height="320dp"
     android:orientation="vertical"
     android:background="@drawable/overlay_background"
     android:elevation="8dp">
@@ -10,7 +10,7 @@
     <LinearLayout
         android:id="@+id/overlay_header"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="38dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="10dp"
@@ -30,12 +30,73 @@
 
         <ImageButton
             android:id="@+id/overlay_close"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
             android:background="@android:color/transparent"
             android:tint="#94a3b8"
             android:contentDescription="Close overlay"/>
+    </LinearLayout>
+
+    <!-- Tab row: COM | UNQ | ALL -->
+    <LinearLayout
+        android:id="@+id/overlay_tabs"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:orientation="horizontal"
+        android:background="#0f172a">
+
+        <TextView
+            android:id="@+id/tab_com"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="COM"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:textColor="#c084fc"
+            android:background="#312e81"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="#1e293b"/>
+
+        <TextView
+            android:id="@+id/tab_unq"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="UNQ"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:textColor="#64748b"
+            android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="#1e293b"/>
+
+        <TextView
+            android:id="@+id/tab_all"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="ALL"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:textColor="#64748b"
+            android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true"/>
     </LinearLayout>
 
     <!-- Word list -->
