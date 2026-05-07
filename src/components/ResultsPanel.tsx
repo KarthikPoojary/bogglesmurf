@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useBoggleStore } from '../store/boggleStore'
 import { loadCommonWords } from '../solver/loadCommonWords'
+import { useOverlay } from '../hooks/useOverlay'
 
 type Tab = 'common' | 'unusual' | 'all'
 
@@ -16,6 +17,7 @@ export function ResultsPanel() {
   const { solutions, selectedWord, setSelectedWord, isSolving } = useBoggleStore()
   const [commonWords, setCommonWords] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('common')
+  const { isSupported: overlaySupported, isVisible: overlayVisible, floatWords, hideOverlay } = useOverlay()
 
   useEffect(() => {
     loadCommonWords().then(setCommonWords)
@@ -92,9 +94,19 @@ export function ResultsPanel() {
       {/* Header row */}
       <div className="flex justify-between items-center">
         <p className="text-xs text-slate-400">{displayed.length} words</p>
-        <button onClick={copyAll} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
-          Copy all
-        </button>
+        <div className="flex gap-3 items-center">
+          {overlaySupported && (
+            <button
+              onClick={() => overlayVisible ? hideOverlay() : floatWords(displayed.map((s) => s.word))}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              {overlayVisible ? 'Hide overlay' : 'Float ↗'}
+            </button>
+          )}
+          <button onClick={copyAll} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
+            Copy all
+          </button>
+        </div>
       </div>
 
       {/* Word groups */}
