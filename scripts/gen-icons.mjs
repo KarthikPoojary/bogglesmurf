@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Generates PWA icons from the BoggleSmurf logo SVG.
-// Requires sharp (pnpm add -D sharp).
+// sharp is NOT in devDependencies (not needed for CI). Run once when icons need regenerating:
+//   pnpm add -D sharp && node scripts/gen-icons.mjs && pnpm remove sharp
 import sharp from 'sharp'
 import { writeFileSync } from 'fs'
 import { fileURLToPath } from 'url'

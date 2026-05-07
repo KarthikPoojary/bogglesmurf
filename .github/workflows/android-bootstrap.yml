@@ -5,6 +5,10 @@ name: Android Bootstrap
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   bootstrap:
     name: Scaffold Android project
@@ -22,15 +26,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
+      # Java is NOT needed here — cap add android only scaffolds files, never runs Gradle.
+      # Java is only needed in the android-build workflow.
 
       - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Build web bundle
+      - name: Build web bundle (no PWA service worker)
         run: MOBILE=1 pnpm build
 
       - name: Install mobile dependencies
