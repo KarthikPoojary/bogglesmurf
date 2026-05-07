@@ -5,13 +5,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
-import com.getcapacitor.ActivityResult;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONException;
@@ -27,6 +25,9 @@ public class OverlayPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    // Opens the system "Display over other apps" settings screen.
+    // Resolves immediately with the current state — caller re-checks hasPermission()
+    // after the user returns from Settings (UX identical to Messenger / TrueCaller).
     @PluginMethod
     public void requestPermission(PluginCall call) {
         if (Settings.canDrawOverlays(getContext())) {
@@ -35,18 +36,13 @@ public class OverlayPlugin extends Plugin {
             call.resolve(ret);
             return;
         }
-        saveCall(call);
         Intent intent = new Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:" + getContext().getPackageName())
         );
-        startActivityForResult(call, intent, "onPermissionResult");
-    }
-
-    @ActivityCallback
-    private void onPermissionResult(PluginCall call, ActivityResult result) {
+        getContext().startActivity(intent);
         JSObject ret = new JSObject();
-        ret.put("granted", Settings.canDrawOverlays(getContext()));
+        ret.put("granted", false);
         call.resolve(ret);
     }
 

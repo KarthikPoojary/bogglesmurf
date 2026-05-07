@@ -16,6 +16,20 @@ export function useOverlay() {
     Overlay.hasPermission().then(({ granted }) => setHasPermission(granted))
   }, [isSupported])
 
+  // Re-check permission when user returns from the Android Settings screen.
+  // requestPermission() opens Settings and resolves immediately with granted=false;
+  // this listener catches the app becoming visible again after the user toggles the switch.
+  useEffect(() => {
+    if (!isSupported) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        Overlay.hasPermission().then(({ granted }) => setHasPermission(granted))
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [isSupported])
+
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!isSupported) return false
     const { granted } = await Overlay.requestPermission()
@@ -26,11 +40,13 @@ export function useOverlay() {
   const floatWords = useCallback(
     async (words: string[]) => {
       if (!isSupported) return
-      let permitted = hasPermission
-      if (!permitted) {
-        permitted = await requestPermission()
+      if (!hasPermission) {
+        // Opens Android Settings — returns false immediately.
+        // User grants the toggle, returns to app, visibilitychange re-checks,
+        // then they tap Float again to actually show the overlay.
+        await requestPermission()
+        return
       }
-      if (!permitted) return
       await Overlay.setWords({ words })
       await Overlay.show()
       setIsVisible(true)
