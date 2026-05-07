@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BoggleSmurf</string>
+    <string name="title_activity_main">BoggleSmurf</string>
+    <string name="package_name">com.bogglesmurf.app</string>
+    <string name="custom_url_scheme">com.bogglesmurf.app</string>
+</resources>
