@@ -53,14 +53,14 @@ export const useBoggleStore = create<BoggleState>()(
     }),
     {
       name: 'bogglesmurf',
-      partialize: (s) => ({ gridSize: s.gridSize, minLen: s.minLen, maxLen: s.maxLen }),
-      // When rehydrating, rebuild letters to match the persisted gridSize.
-      // Without this, letters stays as emptyGrid(4) while gridSize becomes 6,
-      // causing "Cannot set properties of undefined" when typing in rows 4-5.
+      partialize: (s) => ({ gridSize: s.gridSize, minLen: s.minLen, maxLen: s.maxLen, letters: s.letters }),
+      // Rebuild letters from persisted value; fall back to empty grid if not present
+      // (handles old persisted data that predates letters persistence).
       merge: (persisted, current) => {
-        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number }
+        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number; letters?: string[][] }
         const size = p.gridSize ?? current.gridSize
-        return { ...current, ...p, letters: emptyGrid(size) }
+        const letters = p.letters ?? emptyGrid(size)
+        return { ...current, ...p, letters }
       },
     }
   )

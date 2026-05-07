@@ -7,15 +7,23 @@ import android.provider.Settings;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONException;
 import java.util.ArrayList;
 
-@CapacitorPlugin(name = "Overlay")
+@CapacitorPlugin(
+    name = "Overlay",
+    permissions = {
+        @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" })
+    }
+)
 public class OverlayPlugin extends Plugin {
 
     @PluginMethod
@@ -43,6 +51,32 @@ public class OverlayPlugin extends Plugin {
         getContext().startActivity(intent);
         JSObject ret = new JSObject();
         ret.put("granted", false);
+        call.resolve(ret);
+    }
+
+    // Requests POST_NOTIFICATIONS at runtime (required on Android 13+ for the foreground
+    // service notification that keeps the overlay alive). No-op below API 33.
+    @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 33) {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+            return;
+        }
+        if (getPermissionState("notifications") == PermissionState.GRANTED) {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+            return;
+        }
+        requestPermissionForAlias("notifications", call, "notificationsCallback");
+    }
+
+    @PermissionCallback
+    private void notificationsCallback(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
         call.resolve(ret);
     }
 

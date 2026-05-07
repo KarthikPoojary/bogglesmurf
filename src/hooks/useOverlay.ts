@@ -47,6 +47,9 @@ export function useOverlay() {
         await requestPermission()
         return
       }
+      // Android 13+ requires POST_NOTIFICATIONS at runtime for the foreground service
+      // notification. Without it startForeground() crashes the service silently.
+      await Overlay.requestNotificationPermission()
       await Overlay.setWords({ words })
       await Overlay.show()
       setIsVisible(true)

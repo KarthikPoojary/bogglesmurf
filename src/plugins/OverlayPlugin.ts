@@ -4,6 +4,7 @@ import type { PluginListenerHandle } from '@capacitor/core'
 export interface OverlayPlugin {
   hasPermission(): Promise<{ granted: boolean }>
   requestPermission(): Promise<{ granted: boolean }>
+  requestNotificationPermission(): Promise<{ granted: boolean }>
   show(opts?: { x?: number; y?: number }): Promise<void>
   hide(): Promise<void>
   setWords(opts: { words: string[] }): Promise<void>
