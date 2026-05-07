@@ -39,17 +39,18 @@ React 19 + TypeScript · Vite 8 · Tailwind CSS v4 (`@import "tailwindcss"`, no 
 | 5 — Polish (dark mode toggle, haptics, sort, settings drawer) | 🔲 | — |
 | 6 — WordPathOverlay SVG animation | 🔲 | — |
 | 7 — Lighthouse 90+, MIT license, docs | 🔲 | — |
-| M2 — Android overlay (float over Netflix) | 🔲 needs laptop | — |
+| M2 — Android overlay (float over Netflix) | 🚧 code done, install blocked | — |
 
 ## Immediate next task
 
-**Phase 4 — Cloudflare Pages deploy** (web) or **M2 — Android overlay** (mobile, needs laptop).
+**M2 install debugging** — overlay plugin code is complete and compiled. Blocked on getting
+the debug APK onto the phone. Working branch: `claude/check-project-status-YXmHd`.
 
-For Android overlay (M2):
-- Custom Capacitor plugin in `mobile/android/app/src/main/java/com/bogglesmurf/overlay/`
-- `OverlayPlugin.java` + `OverlayService.java` + `OverlayView.java` (second WebView on top)
-- Permissions: `SYSTEM_ALERT_WINDOW`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`
-- TypeScript API stub already in `mobile/src/plugins/OverlayPlugin.ts`
+Current blocker: `./gradlew installDebug` fails with "No connected devices" — need USB
+debugging enabled on phone, or use `assembleDebug` + manual sideload.
+
+After M2 installs and overlay is verified working:
+→ **Phase 4 — Cloudflare Pages deploy** is next for the web app.
 
 ## Mobile — Android (Capacitor)
 
@@ -68,10 +69,30 @@ Key mobile files:
 ```
 mobile/capacitor.config.ts      — appId: com.bogglesmurf.app, webDir: ../dist
 mobile/package.json             — @capacitor/{core,cli,android} only
-mobile/src/plugins/OverlayPlugin.ts — Phase 2 overlay API stub (not yet implemented)
+mobile/src/plugins/OverlayPlugin.ts — legacy stub (actual plugin now in src/plugins/)
 mobile/README.md                — full install + build guide
 .github/workflows/android-bootstrap.yml — one-shot scaffold via CI
 .github/workflows/android-build.yml    — cloud APK build, uploads artifact + Release
+
+# M2 overlay plugin (implemented, on claude/check-project-status-YXmHd branch):
+mobile/android/app/src/main/java/com/bogglesmurf/overlay/OverlayPlugin.java
+mobile/android/app/src/main/java/com/bogglesmurf/overlay/OverlayService.java
+mobile/android/app/src/main/res/layout/overlay_layout.xml
+mobile/android/app/src/main/res/layout/overlay_word_item.xml
+mobile/android/app/src/main/res/drawable/overlay_background.xml
+src/plugins/OverlayPlugin.ts    — registerPlugin wrapper (@capacitor/core in root deps)
+src/hooks/useOverlay.ts         — isNativePlatform() guard, permission flow, visibilitychange
+src/components/ResultsPanel.tsx — "Float ↗ / Hide overlay" button (Android native only)
+```
+
+Local build commands (SDK 34 + Java 17 required):
+```bash
+pnpm install
+MOBILE=1 pnpm build
+cd mobile && pnpm install && pnpm exec cap sync android
+cd android && ./gradlew assembleDebug   # build APK only
+# OR
+cd android && ./gradlew installDebug    # build + install (USB debugging must be on)
 ```
 
 Architecture note: web bundle (`dist/`) is shared verbatim — the Capacitor WebView serves it
