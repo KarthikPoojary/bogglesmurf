@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.pm.ServiceInfo;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
@@ -160,7 +161,14 @@ public class OverlayService extends Service {
             .setContentIntent(pi)
             .setOngoing(true)
             .build();
-        startForeground(NOTIF_ID, notif);
+        // Android 14 (API 34) requires the foreground service type to be passed explicitly
+        // when foregroundServiceType is declared in the manifest. Using the 2-arg overload
+        // on API 34+ throws MissingForegroundServiceTypeException.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIF_ID, notif);
+        }
     }
 
     private int dpToPx(int dp) {
