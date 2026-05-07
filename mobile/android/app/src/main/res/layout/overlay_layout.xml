@@ -33,7 +33,7 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:tint="#94a3b8"
             android:contentDescription="Close overlay"/>
     </LinearLayout>
