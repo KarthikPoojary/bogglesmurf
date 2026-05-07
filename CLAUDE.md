@@ -33,19 +33,50 @@ React 19 + TypeScript · Vite 8 · Tailwind CSS v4 (`@import "tailwindcss"`, no 
 | OCR — camera/photo → auto-detect grid + letters | ✅ | — |
 | Word split — Common / Unusual tabs | ✅ | — |
 | Shared grid — WebSocket sync, 120s session | ✅ | — |
-| 3 — PWA icons + offline testing | 🔲 next | — |
-| 4 — Cloudflare Pages deploy | 🔲 | — |
+| 3 — PWA icons + offline testing | ✅ | — |
+| M1 — Android app (Capacitor scaffold + cloud APK build) | ✅ | — |
+| 4 — Cloudflare Pages deploy | 🔲 next | — |
 | 5 — Polish (dark mode toggle, haptics, sort, settings drawer) | 🔲 | — |
 | 6 — WordPathOverlay SVG animation | 🔲 | — |
 | 7 — Lighthouse 90+, MIT license, docs | 🔲 | — |
+| M2 — Android overlay (float over Netflix) | 🔲 needs laptop | — |
 
 ## Immediate next task
 
-**Phase 3 — PWA icons + offline:**
-- Generate `public/pwa-192.png` and `public/pwa-512.png` (mushroom-themed, use a script with `sharp` or canvas to render 🍄 emoji)
-- Replace `public/favicon.svg` with `public/favicon.ico`
-- Test "Add to Home Screen" on mobile Chrome and iOS Safari
-- Verify offline: load app → disconnect → reload → grid, solver, and dictionary (runtime-cached) all work
+**Phase 4 — Cloudflare Pages deploy** (web) or **M2 — Android overlay** (mobile, needs laptop).
+
+For Android overlay (M2):
+- Custom Capacitor plugin in `mobile/android/app/src/main/java/com/bogglesmurf/overlay/`
+- `OverlayPlugin.java` + `OverlayService.java` + `OverlayView.java` (second WebView on top)
+- Permissions: `SYSTEM_ALERT_WINDOW`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`
+- TypeScript API stub already in `mobile/src/plugins/OverlayPlugin.ts`
+
+## Mobile — Android (Capacitor)
+
+```bash
+# Cloud build — no laptop needed:
+# GitHub → Actions → "Android Bootstrap" → Run workflow  (first time, generates mobile/android/)
+# GitHub → Actions → "Android Build" → Run workflow       (produces app-debug.apk artifact)
+
+# Local build (needs Android Studio + SDK 34 + Java 17):
+MOBILE=1 pnpm build             # web bundle without service worker
+cd mobile && pnpm install && npx cap sync android
+cd android && ./gradlew assembleDebug
+```
+
+Key mobile files:
+```
+mobile/capacitor.config.ts      — appId: com.bogglesmurf.app, webDir: ../dist
+mobile/package.json             — @capacitor/{core,cli,android} only
+mobile/src/plugins/OverlayPlugin.ts — Phase 2 overlay API stub (not yet implemented)
+mobile/README.md                — full install + build guide
+.github/workflows/android-bootstrap.yml — one-shot scaffold via CI
+.github/workflows/android-build.yml    — cloud APK build, uploads artifact + Release
+```
+
+Architecture note: web bundle (`dist/`) is shared verbatim — the Capacitor WebView serves it
+from `https://localhost`. `fetch('/dictionary.txt')` and all solver logic work unchanged.
+`MOBILE=1 pnpm build` skips the PWA service worker (conflicts with Capacitor serving).
 
 ## Key files
 
