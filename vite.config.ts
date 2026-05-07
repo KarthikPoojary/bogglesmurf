@@ -3,11 +3,15 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const isMobile = process.env.MOBILE === '1'
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    VitePWA({
+    // Service worker conflicts with Capacitor's localhost-scheme asset serving.
+    // Skip PWA registration when building the mobile bundle.
+    ...(isMobile ? [] : [VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
@@ -36,9 +40,17 @@ export default defineConfig({
               expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 365 },
             },
           },
+          {
+            urlPattern: /\/common-words\.txt$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'common-words-v1',
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
         ],
       },
-    }),
+    })]),
   ],
   test: {
     environment: 'jsdom',
