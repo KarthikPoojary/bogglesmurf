@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Copy to scripts/deploy-android.sh (gitignored) and fill in your values.
+# Build and deploy the Android debug APK to your phone over WiFi.
+# Requires Wireless debugging to be ON: Settings → Developer options → Wireless debugging
+set -e
+
+# ── Configure these for your machine ─────────────────────────────────────────
+ADB="/path/to/android-sdk/platform-tools/adb"   # e.g. /Users/you/android-sdk/platform-tools/adb
+PHONE_IP="192.168.x.x"                          # phone's local IP (shown in Wireless debugging screen)
+# ─────────────────────────────────────────────────────────────────────────────
+
+export PATH="$(dirname "$ADB"):$PATH"
+
+# First-time pairing (one-shot): uncomment, run once, then re-comment
+# "$ADB" pair "$PHONE_IP:<pairing-port>" "<6-digit-code>"
+
+# ── 1. Connect if not already ────────────────────────────────────────────────
+if ! "$ADB" devices | grep -q "$PHONE_IP"; then
+  echo "Discovering device via mDNS..."
+  SERVICE=$("$ADB" mdns services 2>/dev/null | grep "_adb-tls-connect" | awk '{print $3}')
+  if [ -z "$SERVICE" ]; then
+    echo "ERROR: Phone not found. Ensure Wireless debugging is ON."
+    exit 1
+  fi
+  "$ADB" connect "$SERVICE"
+fi
+
+# ── 2. Build web bundle (no PWA service worker) ───────────────────────────────
+cd "$(dirname "$0")/.."
+MOBILE=1 pnpm build
+
+# ── 3. Sync Capacitor assets ──────────────────────────────────────────────────
+cd mobile && pnpm exec cap sync android && cd ..
+
+# ── 4. Build + install APK ────────────────────────────────────────────────────
+cd mobile/android && ANDROID_HOME="$(dirname "$(dirname "$ADB")")" ./gradlew installDebug -x lint
+
+echo "✓ Installed"

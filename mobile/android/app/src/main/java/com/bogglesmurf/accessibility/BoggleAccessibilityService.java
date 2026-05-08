@@ -9,6 +9,8 @@ import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
 
+import com.bogglesmurf.overlay.OverlayService;
+
 public class BoggleAccessibilityService extends AccessibilityService {
 
     private static BoggleAccessibilityService instance;
@@ -46,6 +48,9 @@ public class BoggleAccessibilityService extends AccessibilityService {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
         if (flatPath == null || flatPath.length < 2) return;
 
+        // Make overlay pass-through immediately so it doesn't intercept the gesture
+        OverlayService.setTouchPassthrough(true);
+
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics dm = getResources().getDisplayMetrics();
             float screenW = dm.widthPixels;
@@ -72,7 +77,11 @@ public class BoggleAccessibilityService extends AccessibilityService {
             GestureDescription gesture = new GestureDescription.Builder()
                 .addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, duration))
                 .build();
-            dispatchGesture(gesture, null, null);
+
+            dispatchGesture(gesture, new AccessibilityService.GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription g) { OverlayService.setTouchPassthrough(false); }
+                @Override public void onCancelled(GestureDescription g) { OverlayService.setTouchPassthrough(false); }
+            }, null);
         }, delayMs);
     }
 }

@@ -80,6 +80,19 @@ public class OverlayService extends Service {
         }
     }
 
+    /** Temporarily make the overlay window pass gestures through to whatever is beneath it. */
+    public static void setTouchPassthrough(boolean passthrough) {
+        if (instance == null || !instance.isShowing || instance.overlayView == null) return;
+        if (passthrough) {
+            instance.overlayParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        } else {
+            instance.overlayParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        }
+        try {
+            instance.windowManager.updateViewLayout(instance.overlayView, instance.overlayParams);
+        } catch (Exception ignored) {}
+    }
+
     public static void setCalibration(float leftPct, float topPct, float widthPct, int gridSize, long swipeDelayMs) {
         calGridLeftPct  = leftPct;
         calGridTopPct   = topPct;

@@ -42,3 +42,7 @@ lerna-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Local device config — contains phone IP, ADB paths, pairing codes
+scripts/deploy-android.sh
+.local-notes.md
