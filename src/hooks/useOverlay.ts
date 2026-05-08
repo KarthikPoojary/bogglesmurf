@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { Overlay } from '../plugins/OverlayPlugin'
 import { useBoggleStore } from '../store/boggleStore'
+import type { Solution } from '../solver/solver'
 
 export function useOverlay() {
   const isSupported =
@@ -38,16 +39,22 @@ export function useOverlay() {
   }, [isSupported])
 
   const floatWords = useCallback(
-    async (words: string[], commonWords: string[]) => {
+    async (solutions: Solution[], commonWords: Set<string>) => {
       if (!isSupported) return
-      if (!hasPermission) {
-        await requestPermission()
-        return
-      }
-      // Android 13+ requires POST_NOTIFICATIONS at runtime for the foreground
-      // service notification. Without it startForeground() crashes silently.
+      if (!hasPermission) { await requestPermission(); return }
+
+      // Android 13+ requires POST_NOTIFICATIONS at runtime for the foreground service notification
       await Overlay.requestNotificationPermission()
-      await Overlay.setWords({ words, commonWords })
+
+      const words = solutions.map((s) => ({
+        word: s.word,
+        path: s.path.flatMap((c) => [c.row, c.col]),
+      }))
+      const commonList = solutions
+        .filter((s) => commonWords.has(s.word))
+        .map((s) => s.word)
+
+      await Overlay.setWords({ words, commonWords: commonList })
       await Overlay.show()
       await Overlay.setAlpha({ alpha: overlayAlpha })
       setIsVisible(true)

@@ -1,12 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@android:id/text1"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
-    android:paddingTop="5dp"
-    android:paddingBottom="5dp"
-    android:textColor="#e2e8f0"
-    android:textSize="13sp"
-    android:background="#0f172a"/>
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="#0f172a">
+
+    <TextView
+        android:id="@+id/word_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:textColor="#e2e8f0"
+        android:textSize="13sp"/>
+
+    <!-- ▶ tap to auto-swipe this word in Netflix -->
+    <TextView
+        android:id="@+id/word_play"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:gravity="center"
+        android:text="▶"
+        android:textColor="#4ade80"
+        android:textSize="11sp"
+        android:background="@android:color/transparent"
+        android:clickable="true"
+        android:focusable="true"/>
+
+</LinearLayout>

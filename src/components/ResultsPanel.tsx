@@ -3,6 +3,7 @@ import { useBoggleStore } from '../store/boggleStore'
 import { loadCommonWords } from '../solver/loadCommonWords'
 import { useOverlay } from '../hooks/useOverlay'
 import { Overlay } from '../plugins/OverlayPlugin'
+import { Swipe } from '../plugins/SwipePlugin'
 
 type Tab = 'common' | 'unusual' | 'all'
 
@@ -15,14 +16,21 @@ function boggleScore(len: number): number {
 }
 
 export function ResultsPanel() {
-  const { solutions, selectedWord, setSelectedWord, isSolving, overlayAlpha, setOverlayAlpha } = useBoggleStore()
+  const { solutions, selectedWord, setSelectedWord, isSolving, overlayAlpha, setOverlayAlpha, swipeCalibration, setSwipeCalibration, gridSize } = useBoggleStore()
   const [commonWords, setCommonWords] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('common')
+  const [swipeEnabled, setSwipeEnabled] = useState(false)
   const { isSupported: overlaySupported, isVisible: overlayVisible, floatWords, hideOverlay, updateAlpha } = useOverlay()
 
+  useEffect(() => { loadCommonWords().then(setCommonWords) }, [])
+
   useEffect(() => {
-    loadCommonWords().then(setCommonWords)
-  }, [])
+    if (!overlaySupported) return
+    const check = () => Swipe.isEnabled().then(({ enabled }) => setSwipeEnabled(enabled))
+    check()
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
+  }, [overlaySupported])
 
   if (isSolving) {
     return <div className="flex items-center justify-center h-32 text-slate-400 text-sm">Solving…</div>
@@ -102,9 +110,10 @@ export function ResultsPanel() {
                 if (overlayVisible) {
                   hideOverlay()
                 } else {
-                  const allWords = solutions.map((s) => s.word)
-                  const commonList = solutions.filter((s) => commonWords.has(s.word)).map((s) => s.word)
-                  floatWords(allWords, commonList)
+                  if (swipeEnabled) {
+                    Swipe.setCalibration({ ...swipeCalibration, gridSize }).catch(() => {})
+                  }
+                  floatWords(solutions, commonWords)
                 }
               }}
               className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
@@ -136,26 +145,52 @@ export function ResultsPanel() {
             }}
             className="w-full accent-violet-500"
           />
-          {/* Live preview card */}
-          <div
-            className="rounded-lg overflow-hidden border border-slate-700 text-[10px]"
-            style={{ opacity: overlayAlpha }}
-          >
-            <div className="bg-slate-800 px-2 py-1 flex justify-between items-center">
-              <span className="text-violet-400 font-bold">BoggleSmurf ⚡</span>
-              <span className="text-slate-500">✕</span>
-            </div>
-            <div className="bg-slate-900/90 flex">
-              <span className="flex-1 text-center py-0.5 bg-indigo-900 text-violet-400 font-bold">COM</span>
-              <span className="flex-1 text-center py-0.5 text-slate-500">UNQ</span>
-              <span className="flex-1 text-center py-0.5 text-slate-500">ALL</span>
-            </div>
-            <div className="bg-slate-900/90 px-2 py-1 flex flex-col gap-0.5">
-              {['STONE', 'TONE', 'NOTE', 'ONES'].map((w) => (
-                <span key={w} className="text-slate-300">{w}</span>
-              ))}
-            </div>
+        </div>
+      )}
+
+      {/* Swipe setup — Android only */}
+      {overlaySupported && (
+        <div className="flex flex-col gap-2 bg-slate-900/60 rounded-xl p-3 border border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-slate-400 font-medium">Auto-swipe setup</span>
+            {swipeEnabled
+              ? <span className="text-[10px] text-emerald-400">● Service active</span>
+              : <button
+                  onClick={() => Swipe.openSettings()}
+                  className="text-[10px] text-violet-400 underline"
+                >Enable accessibility service</button>
+            }
           </div>
+          {swipeEnabled && (
+            <>
+              <div className="flex flex-col gap-1.5 text-[11px] text-slate-500">
+                {[
+                  { label: 'Grid left', key: 'gridLeftPct' as const, min: 0, max: 30 },
+                  { label: 'Grid top', key: 'gridTopPct' as const, min: 0, max: 60 },
+                  { label: 'Grid width', key: 'gridWidthPct' as const, min: 50, max: 100 },
+                ].map(({ label, key, min, max }) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="w-20 shrink-0">{label}</span>
+                    <input
+                      type="range" min={min} max={max} step={1}
+                      value={swipeCalibration[key]}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value)
+                        const next = { ...swipeCalibration, [key]: v }
+                        setSwipeCalibration(next)
+                        Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
+                      }}
+                      className="flex-1 accent-violet-500"
+                    />
+                    <span className="w-8 text-right">{Math.round(swipeCalibration[key])}%</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-600">
+                Adjust until tapping ▶ on a word traces the right path in Netflix Boggle
+              </p>
+            </>
+          )}
         </div>
       )}
 

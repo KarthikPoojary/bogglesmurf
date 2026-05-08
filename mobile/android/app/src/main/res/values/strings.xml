@@ -4,4 +4,5 @@
     <string name="title_activity_main">BoggleSmurf</string>
     <string name="package_name">com.bogglesmurf.app</string>
     <string name="custom_url_scheme">com.bogglesmurf.app</string>
+    <string name="accessibility_service_description">BoggleSmurf uses this to swipe words automatically in the Netflix Boggle game</string>
 </resources>

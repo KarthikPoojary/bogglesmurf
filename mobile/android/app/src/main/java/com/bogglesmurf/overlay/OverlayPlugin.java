@@ -15,9 +15,11 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @CapacitorPlugin(
@@ -53,7 +55,6 @@ public class OverlayPlugin extends Plugin {
         call.resolve(ret);
     }
 
-    // Requests POST_NOTIFICATIONS at runtime (Android 13+). No-op below API 33.
     @PluginMethod
     public void requestNotificationPermission(PluginCall call) {
         if (Build.VERSION.SDK_INT < 33) {
@@ -94,24 +95,42 @@ public class OverlayPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * words: [{ word: "CAT", path: [0,0,0,1,0,2], isCommon: true }, ...]
+     * commonWords: ["CAT", "DOG", ...] (same list, used to populate commonWordSet)
+     */
     @PluginMethod
     public void setWords(PluginCall call) {
-        JSArray wordsJson = call.getArray("words");
+        JSArray wordsJson  = call.getArray("words");
         JSArray commonJson = call.getArray("commonWords");
         if (wordsJson == null) { call.reject("words parameter is required"); return; }
 
-        ArrayList<String> words = new ArrayList<>();
-        Set<String> common = new HashSet<>();
+        Set<String> commonSet = new HashSet<>();
+        if (commonJson != null) {
+            try {
+                for (int i = 0; i < commonJson.length(); i++) commonSet.add(commonJson.getString(i));
+            } catch (JSONException e) { /* ignore */ }
+        }
+
+        List<OverlayService.WordEntry> entries = new ArrayList<>();
         try {
-            for (int i = 0; i < wordsJson.length(); i++) words.add(wordsJson.getString(i));
-            if (commonJson != null) {
-                for (int i = 0; i < commonJson.length(); i++) common.add(commonJson.getString(i));
+            for (int i = 0; i < wordsJson.length(); i++) {
+                JSObject obj = wordsJson.getJSONObject(i);
+                String word = obj.getString("word");
+
+                // path is a flat int array [row0,col0,row1,col1,...]
+                JSONArray pathJson = obj.getJSONArray("path");
+                int[] path = new int[pathJson.length()];
+                for (int j = 0; j < pathJson.length(); j++) path[j] = pathJson.getInt(j);
+
+                boolean isCommon = commonSet.contains(word);
+                entries.add(new OverlayService.WordEntry(word, path, isCommon));
             }
         } catch (JSONException e) {
             call.reject("Invalid words array: " + e.getMessage());
             return;
         }
-        OverlayService.setWords(words, common);
+        OverlayService.setWords(entries, commonSet);
         call.resolve();
     }
 

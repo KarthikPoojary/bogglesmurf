@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
@@ -15,14 +16,16 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
+import com.bogglesmurf.accessibility.BoggleAccessibilityService;
 import com.bogglesmurf.app.MainActivity;
 import com.bogglesmurf.app.R;
 
@@ -37,26 +40,30 @@ public class OverlayService extends Service {
     public static final String ACTION_SHOW = "com.bogglesmurf.overlay.SHOW";
     public static final String ACTION_HIDE = "com.bogglesmurf.overlay.HIDE";
 
-    private static final String CHANNEL_ID = "bogglesmurf_overlay";
-    private static final int NOTIF_ID = 1001;
-    private static final int MAX_WORDS = 60;
+    private static final String CHANNEL_ID  = "bogglesmurf_overlay";
+    private static final int    NOTIF_ID    = 1001;
+    private static final int    MAX_WORDS   = 60;
 
-    private static List<String> allWords = Collections.emptyList();
-    private static Set<String> commonWordSet = new HashSet<>();
-    private static float overlayAlpha = 0.85f;
+    // ── Static state (set from OverlayPlugin / SwipePlugin) ─────────────────
+
+    private static List<WordEntry> wordEntries = Collections.emptyList();
+    private static Set<String>     commonWordSet = new HashSet<>();
+    private static float           overlayAlpha  = 0.85f;
+
+    // Calibration (percentages of screen dimensions)
+    private static float calGridLeftPct  = 5f;
+    private static float calGridTopPct   = 28f;
+    private static float calGridWidthPct = 90f;
+    private static int   calGridSize     = 4;
+
     private static OverlayService instance;
 
-    private WindowManager windowManager;
-    private View overlayView;
-    private WindowManager.LayoutParams overlayParams;
-    private ArrayAdapter<String> wordAdapter;
-    private boolean isShowing = false;
-    private String currentTab = "COM";
+    // ── Static setters ────────────────────────────────────────────────────────
 
-    // ── Static setters (called from OverlayPlugin on any thread) ────────────
-
-    public static void setWords(List<String> words, Set<String> common) {
-        allWords = new ArrayList<>(words);
+    public static void setWords(List<WordEntry> entries, Set<String> common) {
+        // Reset done state when new words arrive
+        for (WordEntry e : entries) e.isDone = false;
+        wordEntries = new ArrayList<>(entries);
         commonWordSet = new HashSet<>(common);
         if (instance != null) instance.refreshWordList();
     }
@@ -68,7 +75,36 @@ public class OverlayService extends Service {
         }
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
+    public static void setCalibration(float leftPct, float topPct, float widthPct, int gridSize) {
+        calGridLeftPct  = leftPct;
+        calGridTopPct   = topPct;
+        calGridWidthPct = widthPct;
+        calGridSize     = gridSize;
+    }
+
+    // ── WordEntry ─────────────────────────────────────────────────────────────
+
+    public static class WordEntry {
+        public String word;
+        public int[]  path;    // flat [row0,col0,row1,col1,...]
+        public boolean isCommon;
+        public boolean isDone = false;
+
+        public WordEntry(String word, int[] path, boolean isCommon) {
+            this.word = word;
+            this.path = path;
+            this.isCommon = isCommon;
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    private WindowManager             windowManager;
+    private View                      overlayView;
+    private WindowManager.LayoutParams overlayParams;
+    private WordAdapter               wordAdapter;
+    private boolean                   isShowing  = false;
+    private String                    currentTab = "COM";
 
     @Override
     public void onCreate() {
@@ -89,22 +125,15 @@ public class OverlayService extends Service {
         if (intent == null) return START_STICKY;
         ensureForeground();
         String action = intent.getAction();
-        if (ACTION_SHOW.equals(action)) {
-            showOverlay();
-        } else if (ACTION_HIDE.equals(action)) {
-            removeOverlay();
-            stopSelf();
-        }
+        if (ACTION_SHOW.equals(action)) showOverlay();
+        else if (ACTION_HIDE.equals(action)) { removeOverlay(); stopSelf(); }
         return START_STICKY;
     }
 
     // ── Overlay window ────────────────────────────────────────────────────────
 
     private void showOverlay() {
-        if (isShowing) {
-            refreshWordList();
-            return;
-        }
+        if (isShowing) { refreshWordList(); return; }
 
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null);
         overlayView.setAlpha(overlayAlpha);
@@ -127,22 +156,18 @@ public class OverlayService extends Service {
             removeOverlay();
             stopSelf();
         });
+        overlayView.findViewById(R.id.overlay_header).setOnTouchListener(new HeaderDragListener());
 
-        overlayView.findViewById(R.id.overlay_header)
-            .setOnTouchListener(new HeaderDragListener());
-
-        // Tab click listeners
         overlayView.findViewById(R.id.tab_com).setOnClickListener(v -> switchTab("COM"));
         overlayView.findViewById(R.id.tab_unq).setOnClickListener(v -> switchTab("UNQ"));
         overlayView.findViewById(R.id.tab_all).setOnClickListener(v -> switchTab("ALL"));
 
         ListView listView = overlayView.findViewById(R.id.overlay_words);
-        wordAdapter = new ArrayAdapter<>(this, R.layout.overlay_word_item, new ArrayList<>());
+        wordAdapter = new WordAdapter();
         listView.setAdapter(wordAdapter);
 
         windowManager.addView(overlayView, overlayParams);
         isShowing = true;
-
         refreshWordList();
     }
 
@@ -154,7 +179,7 @@ public class OverlayService extends Service {
 
     private void updateTabHighlight() {
         if (overlayView == null) return;
-        int[] ids = { R.id.tab_com, R.id.tab_unq, R.id.tab_all };
+        int[] ids  = { R.id.tab_com, R.id.tab_unq, R.id.tab_all };
         String[] tabs = { "COM", "UNQ", "ALL" };
         for (int i = 0; i < ids.length; i++) {
             TextView tv = overlayView.findViewById(ids[i]);
@@ -170,20 +195,18 @@ public class OverlayService extends Service {
 
     private void refreshWordList() {
         if (wordAdapter == null) return;
-        List<String> filtered = getTabWords();
-        List<String> display = filtered.size() > MAX_WORDS ? filtered.subList(0, MAX_WORDS) : filtered;
-        wordAdapter.clear();
-        wordAdapter.addAll(display);
-        wordAdapter.notifyDataSetChanged();
+        wordAdapter.setEntries(getTabEntries());
     }
 
-    private List<String> getTabWords() {
-        List<String> result = new ArrayList<>();
-        for (String w : allWords) {
-            boolean isCommon = commonWordSet.contains(w);
-            if ("COM".equals(currentTab) && isCommon) result.add(w);
-            else if ("UNQ".equals(currentTab) && !isCommon) result.add(w);
-            else if ("ALL".equals(currentTab)) result.add(w);
+    private List<WordEntry> getTabEntries() {
+        List<WordEntry> result = new ArrayList<>();
+        int count = 0;
+        for (WordEntry e : wordEntries) {
+            if (count >= MAX_WORDS) break;
+            if ("COM".equals(currentTab) && !e.isCommon) continue;
+            if ("UNQ".equals(currentTab) &&  e.isCommon) continue;
+            result.add(e);
+            count++;
         }
         return result;
     }
@@ -195,6 +218,54 @@ public class OverlayService extends Service {
             overlayParams = null;
             wordAdapter = null;
             isShowing = false;
+        }
+    }
+
+    // ── Custom word adapter ───────────────────────────────────────────────────
+
+    private class WordAdapter extends BaseAdapter {
+        private List<WordEntry> entries = new ArrayList<>();
+
+        void setEntries(List<WordEntry> e) {
+            entries = e;
+            notifyDataSetChanged();
+        }
+
+        @Override public int getCount()             { return entries.size(); }
+        @Override public Object getItem(int pos)    { return entries.get(pos); }
+        @Override public long getItemId(int pos)    { return pos; }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            if (convertView == null) {
+                convertView = LayoutInflater.from(OverlayService.this)
+                    .inflate(R.layout.overlay_word_item, parent, false);
+            }
+            WordEntry entry = entries.get(position);
+
+            TextView wordText = convertView.findViewById(R.id.word_text);
+            TextView playBtn  = convertView.findViewById(R.id.word_play);
+
+            wordText.setText(entry.word);
+            if (entry.isDone) {
+                wordText.setPaintFlags(wordText.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
+                wordText.setAlpha(0.35f);
+                playBtn.setAlpha(0.2f);
+            } else {
+                wordText.setPaintFlags(wordText.getPaintFlags() & ~Paint.STRIKE_THRU_TEXT_FLAG);
+                wordText.setAlpha(1.0f);
+                playBtn.setAlpha(1.0f);
+            }
+
+            playBtn.setOnClickListener(v -> {
+                BoggleAccessibilityService svc = BoggleAccessibilityService.getInstance();
+                if (svc == null || entry.path == null) return;
+                svc.swipeWord(entry.path, calGridLeftPct, calGridTopPct, calGridWidthPct, calGridSize);
+                entry.isDone = true;
+                notifyDataSetChanged();
+            });
+
+            return convertView;
         }
     }
 
@@ -220,9 +291,6 @@ public class OverlayService extends Service {
             .setContentIntent(pi)
             .setOngoing(true)
             .build();
-
-        // Android 14 (API 34) requires the foreground service type to be passed explicitly
-        // when foregroundServiceType is declared in the manifest.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
@@ -236,20 +304,18 @@ public class OverlayService extends Service {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) { return null; }
+    @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
     private class HeaderDragListener implements View.OnTouchListener {
         private float startRawX, startRawY;
-        private int startParamX, startParamY;
+        private int   startParamX, startParamY;
 
         @Override
         public boolean onTouch(View v, MotionEvent event) {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    startRawX = event.getRawX();
-                    startRawY = event.getRawY();
+                    startRawX  = event.getRawX();
+                    startRawY  = event.getRawY();
                     startParamX = overlayParams.x;
                     startParamY = overlayParams.y;
                     return true;
