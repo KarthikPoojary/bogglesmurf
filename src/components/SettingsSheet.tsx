@@ -80,49 +80,24 @@ export function SettingsSheet({
 
           {swipeEnabled && (
             <>
-              <div className="flex flex-col gap-2 text-[11px] text-slate-500">
-                {[
-                  { label: 'Grid left',  key: 'gridLeftPct'  as const, min: 0,  max: 30,  unit: '%' },
-                  { label: 'Grid top',   key: 'gridTopPct'   as const, min: 0,  max: 60,  unit: '%' },
-                  { label: 'Grid width', key: 'gridWidthPct' as const, min: 50, max: 100, unit: '%' },
-                ].map(({ label, key, min, max, unit }) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span className="w-20 shrink-0">{label}</span>
-                    <input
-                      type="range" min={min} max={max} step={1}
-                      value={swipeCalibration[key]}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value)
-                        const next = { ...swipeCalibration, [key]: v }
-                        setSwipeCalibration(next)
-                        Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
-                      }}
-                      className="flex-1 accent-violet-500"
-                    />
-                    <span className="w-8 text-right">{Math.round(swipeCalibration[key])}{unit}</span>
-                  </div>
-                ))}
-
-                {/* Swipe delay — lets any "word found" popup clear before the next gesture */}
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="w-20 shrink-0">Swipe delay</span>
-                  <input
-                    type="range" min={0} max={1500} step={50}
-                    value={swipeCalibration.swipeDelayMs}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      const next = { ...swipeCalibration, swipeDelayMs: v }
-                      setSwipeCalibration(next)
-                      Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
-                    }}
-                    className="flex-1 accent-violet-500"
-                  />
-                  <span className="w-10 text-right">{swipeCalibration.swipeDelayMs}ms</span>
-                </div>
-                <p className="text-[10px] text-slate-600 -mt-1">
-                  Delay before each swipe — increase if gestures land on score popups instead of the grid
-                </p>
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span className="w-20 shrink-0">Swipe delay</span>
+                <input
+                  type="range" min={0} max={1500} step={50}
+                  value={swipeCalibration.swipeDelayMs}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value)
+                    const next = { ...swipeCalibration, swipeDelayMs: v }
+                    setSwipeCalibration(next)
+                    Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
+                  }}
+                  className="flex-1 accent-violet-500"
+                />
+                <span className="w-10 text-right">{swipeCalibration.swipeDelayMs}ms</span>
               </div>
+              <p className="text-[10px] text-slate-600 -mt-2">
+                Increase if gestures land on score popups instead of the grid
+              </p>
 
               <button
                 onClick={isCalibrating ? onHideCalibration : onShowCalibration}
@@ -137,7 +112,7 @@ export function SettingsSheet({
               <p className="text-[10px] text-slate-600 -mt-1">
                 {isCalibrating
                   ? 'Switch to Netflix Boggle — drag the green grid to align it, resize from the bottom-right corner, then come back and tap Save.'
-                  : 'Opens a draggable grid overlay over any app so you can align it visually.'}
+                  : 'Opens a draggable grid overlay so you can visually align it with the Boggle board.'}
               </p>
             </>
           )}
