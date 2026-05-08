@@ -1,0 +1,26 @@
+# Cloudflare Pages response headers
+
+# Service worker and Workbox runtime must never be cached by the browser
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/workbox-*.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# Hashed JS/CSS bundles — safe to cache forever
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Dictionary files are large and rarely change
+/dictionary.txt
+  Cache-Control: public, max-age=31536000
+
+/common-words.txt
+  Cache-Control: public, max-age=31536000
+
+# Security headers for all pages
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=()
