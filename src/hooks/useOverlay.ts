@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { Overlay } from '../plugins/OverlayPlugin'
+import { Swipe } from '../plugins/SwipePlugin'
 import { useBoggleStore } from '../store/boggleStore'
 import type { Solution } from '../solver/solver'
 
@@ -10,7 +11,8 @@ export function useOverlay() {
     Capacitor.isNativePlatform() &&
     Capacitor.getPlatform() === 'android'
 
-  const overlayAlpha = useBoggleStore((s) => s.overlayAlpha)
+  const overlayAlpha        = useBoggleStore((s) => s.overlayAlpha)
+  const setSwipeCalibration = useBoggleStore((s) => s.setSwipeCalibration)
   const [hasPermission, setHasPermission] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
   const [isCalibrating, setIsCalibrating] = useState(false)
@@ -84,8 +86,10 @@ export function useOverlay() {
   const hideCalibrationGrid = useCallback(async () => {
     if (!isSupported) return
     await Overlay.hideCalibration()
+    // Read back dragged position and persist to store
+    Swipe.getCalibration().then(setSwipeCalibration).catch(() => {})
     setIsCalibrating(false)
-  }, [isSupported])
+  }, [isSupported, setSwipeCalibration])
 
   return {
     isSupported, hasPermission, isVisible, isCalibrating,

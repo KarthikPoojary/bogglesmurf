@@ -29,6 +29,17 @@ public class SwipePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getCalibration(PluginCall call) {
+        float[] cal = OverlayService.getCalibrationValues();
+        JSObject ret = new JSObject();
+        ret.put("gridLeftPct",  cal[0]);
+        ret.put("gridTopPct",   cal[1]);
+        ret.put("gridWidthPct", cal[2]);
+        ret.put("swipeDelayMs", (int) cal[3]);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void setCalibration(PluginCall call) {
         float gridLeftPct  = call.getDouble("gridLeftPct",  5.0).floatValue();
         float gridTopPct   = call.getDouble("gridTopPct",  28.0).floatValue();

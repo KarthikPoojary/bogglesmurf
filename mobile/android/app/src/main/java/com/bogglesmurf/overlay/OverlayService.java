@@ -93,6 +93,11 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
+    /** Returns [leftPct, topPct, widthPct, swipeDelayMs] for JS to read back after drag-calibration. */
+    public static float[] getCalibrationValues() {
+        return new float[]{ calGridLeftPct, calGridTopPct, calGridWidthPct, calSwipeDelayMs };
+    }
+
     public static void setCalibration(float leftPct, float topPct, float widthPct, int gridSize, long swipeDelayMs) {
         calGridLeftPct  = leftPct;
         calGridTopPct   = topPct;
@@ -315,7 +320,6 @@ public class OverlayService extends Service {
             WindowManager.LayoutParams.MATCH_PARENT,
             layerType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         );
@@ -332,33 +336,57 @@ public class OverlayService extends Service {
     }
 
     private class CalibrationView extends View {
+        private static final int MODE_NONE   = 0;
+        private static final int MODE_DRAG   = 1;
+        private static final int MODE_RESIZE = 2;
+
         private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fillPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint textPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint handlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint hintPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        private int   mode = MODE_NONE;
+        private float lastX, lastY;
+        private final float handle; // px — size of the resize touch zone
 
         CalibrationView(Context ctx) {
             super(ctx);
+            handle = 52 * ctx.getResources().getDisplayMetrics().density;
+
             borderPaint.setColor(0xFF00E676);
             borderPaint.setStyle(Paint.Style.STROKE);
             borderPaint.setStrokeWidth(3f);
 
-            fillPaint.setColor(0x1A00E676); // very faint green tint per cell
+            fillPaint.setColor(0x1A00E676);
             fillPaint.setStyle(Paint.Style.FILL);
 
             textPaint.setColor(0xFFFFFFFF);
-            textPaint.setTextSize(28f);
+            textPaint.setTextSize(26f);
             textPaint.setShadowLayer(4f, 0, 0, 0xFF000000);
+
+            handlePaint.setColor(0xFF00E676);
+            handlePaint.setStyle(Paint.Style.FILL);
+
+            hintPaint.setColor(0xCCFFFFFF);
+            hintPaint.setTextSize(28f);
+            hintPaint.setShadowLayer(5f, 0, 0, 0xFF000000);
+        }
+
+        private float[] getBounds() {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            return new float[]{
+                dm.widthPixels  * calGridLeftPct  / 100f,  // left
+                dm.heightPixels * calGridTopPct   / 100f,  // top
+                dm.widthPixels  * calGridWidthPct / 100f   // width (square grid → height = width)
+            };
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            float sw = dm.widthPixels;
-            float sh = dm.heightPixels;
-
-            float left     = sw * calGridLeftPct  / 100f;
-            float top      = sh * calGridTopPct   / 100f;
-            float cellSize = (sw * calGridWidthPct / 100f) / calGridSize;
+            float[] b = getBounds();
+            float left = b[0], top = b[1], width = b[2];
+            float cellSize = width / calGridSize;
 
             for (int r = 0; r < calGridSize; r++) {
                 for (int c = 0; c < calGridSize; c++) {
@@ -366,11 +394,65 @@ public class OverlayService extends Service {
                     float y = top  + r * cellSize;
                     canvas.drawRect(x, y, x + cellSize, y + cellSize, fillPaint);
                     canvas.drawRect(x, y, x + cellSize, y + cellSize, borderPaint);
-                    String label = r + "," + c;
-                    float tw = textPaint.measureText(label);
-                    canvas.drawText(label, x + (cellSize - tw) / 2f, y + cellSize / 2f + 10f, textPaint);
+                    String lbl = r + "," + c;
+                    float tw = textPaint.measureText(lbl);
+                    canvas.drawText(lbl, x + (cellSize - tw) / 2f, y + cellSize / 2f + 9f, textPaint);
                 }
             }
+
+            // Resize handle — filled square at bottom-right corner
+            float hs = handle * 0.55f;
+            canvas.drawRect(left + width - hs, top + width - hs, left + width, top + width, handlePaint);
+
+            // Hint text below the grid
+            String hint = "Drag grid to move  ·  corner to resize";
+            float tw = hintPaint.measureText(hint);
+            canvas.drawText(hint, left + (width - tw) / 2f, top + width + 40f, hintPaint);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent ev) {
+            float[] b = getBounds();
+            float left = b[0], top = b[1], width = b[2];
+            float ex = ev.getX(), ey = ev.getY();
+
+            switch (ev.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    // Bottom-right corner → resize
+                    if (ex >= left + width - handle && ey >= top + width - handle
+                            && ex <= left + width + handle / 2f && ey <= top + width + handle / 2f) {
+                        mode = MODE_RESIZE;
+                    } else if (ex >= left && ex <= left + width && ey >= top && ey <= top + width) {
+                        // Inside grid → drag
+                        mode = MODE_DRAG;
+                    } else {
+                        mode = MODE_NONE;
+                        return false; // outside grid — don't consume
+                    }
+                    lastX = ex; lastY = ey;
+                    return true;
+
+                case MotionEvent.ACTION_MOVE:
+                    if (mode == MODE_NONE) return false;
+                    DisplayMetrics dm = getResources().getDisplayMetrics();
+                    float sw = dm.widthPixels, sh = dm.heightPixels;
+                    float dx = ex - lastX, dy = ey - lastY;
+                    lastX = ex; lastY = ey;
+                    if (mode == MODE_DRAG) {
+                        calGridLeftPct = Math.max(0,  Math.min(50, calGridLeftPct + dx / sw * 100));
+                        calGridTopPct  = Math.max(0,  Math.min(70, calGridTopPct  + dy / sh * 100));
+                    } else {
+                        calGridWidthPct = Math.max(30, Math.min(100, calGridWidthPct + dx / sw * 100));
+                    }
+                    postInvalidate();
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    mode = MODE_NONE;
+                    return true;
+            }
+            return false;
         }
     }
 

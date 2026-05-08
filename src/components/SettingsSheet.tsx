@@ -132,11 +132,12 @@ export function SettingsSheet({
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                {isCalibrating ? '✕  Hide calibration grid' : '⊞  Preview calibration grid'}
+                {isCalibrating ? '✓  Save calibration' : '⊞  Drag to calibrate'}
               </button>
               <p className="text-[10px] text-slate-600 -mt-1">
-                Opens a grid overlay so you can align it with the Netflix Boggle board.
-                Switch to Netflix, then come back to adjust and preview again.
+                {isCalibrating
+                  ? 'Switch to Netflix Boggle — drag the green grid to align it, resize from the bottom-right corner, then come back and tap Save.'
+                  : 'Opens a draggable grid overlay over any app so you can align it visually.'}
               </p>
             </>
           )}
