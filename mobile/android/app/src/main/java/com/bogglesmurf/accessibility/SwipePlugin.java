@@ -34,7 +34,8 @@ public class SwipePlugin extends Plugin {
         float gridTopPct   = call.getDouble("gridTopPct",  28.0).floatValue();
         float gridWidthPct = call.getDouble("gridWidthPct", 90.0).floatValue();
         int   gridSize     = call.getInt("gridSize", 4);
-        OverlayService.setCalibration(gridLeftPct, gridTopPct, gridWidthPct, gridSize);
+        long  swipeDelayMs = call.getInt("swipeDelayMs", 400).longValue();
+        OverlayService.setCalibration(gridLeftPct, gridTopPct, gridWidthPct, gridSize, swipeDelayMs);
         call.resolve();
     }
 }

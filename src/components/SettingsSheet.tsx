@@ -82,10 +82,10 @@ export function SettingsSheet({
             <>
               <div className="flex flex-col gap-2 text-[11px] text-slate-500">
                 {[
-                  { label: 'Grid left',  key: 'gridLeftPct'  as const, min: 0,  max: 30  },
-                  { label: 'Grid top',   key: 'gridTopPct'   as const, min: 0,  max: 60  },
-                  { label: 'Grid width', key: 'gridWidthPct' as const, min: 50, max: 100 },
-                ].map(({ label, key, min, max }) => (
+                  { label: 'Grid left',  key: 'gridLeftPct'  as const, min: 0,  max: 30,  unit: '%' },
+                  { label: 'Grid top',   key: 'gridTopPct'   as const, min: 0,  max: 60,  unit: '%' },
+                  { label: 'Grid width', key: 'gridWidthPct' as const, min: 50, max: 100, unit: '%' },
+                ].map(({ label, key, min, max, unit }) => (
                   <div key={key} className="flex items-center gap-2">
                     <span className="w-20 shrink-0">{label}</span>
                     <input
@@ -99,9 +99,29 @@ export function SettingsSheet({
                       }}
                       className="flex-1 accent-violet-500"
                     />
-                    <span className="w-8 text-right">{Math.round(swipeCalibration[key])}%</span>
+                    <span className="w-8 text-right">{Math.round(swipeCalibration[key])}{unit}</span>
                   </div>
                 ))}
+
+                {/* Swipe delay — lets any "word found" popup clear before the next gesture */}
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-20 shrink-0">Swipe delay</span>
+                  <input
+                    type="range" min={0} max={1500} step={50}
+                    value={swipeCalibration.swipeDelayMs}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      const next = { ...swipeCalibration, swipeDelayMs: v }
+                      setSwipeCalibration(next)
+                      Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
+                    }}
+                    className="flex-1 accent-violet-500"
+                  />
+                  <span className="w-10 text-right">{swipeCalibration.swipeDelayMs}ms</span>
+                </div>
+                <p className="text-[10px] text-slate-600 -mt-1">
+                  Delay before each swipe — increase if gestures land on score popups instead of the grid
+                </p>
               </div>
 
               <button

@@ -17,7 +17,7 @@ interface BoggleState {
   selectedWord: string | null
   isSolving: boolean
   overlayAlpha: number
-  swipeCalibration: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number }
+  swipeCalibration: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number; swipeDelayMs: number }
 
   setGridSize: (size: GridSize) => void
   setLetter: (row: number, col: number, letter: string) => void
@@ -28,7 +28,7 @@ interface BoggleState {
   setMaxLen: (n: number) => void
   setIsSolving: (b: boolean) => void
   setOverlayAlpha: (n: number) => void
-  setSwipeCalibration: (c: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number }) => void
+  setSwipeCalibration: (c: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number; swipeDelayMs: number }) => void
 }
 
 export const useBoggleStore = create<BoggleState>()(
@@ -42,7 +42,7 @@ export const useBoggleStore = create<BoggleState>()(
       selectedWord: null,
       isSolving: false,
       overlayAlpha: 0.85,
-      swipeCalibration: { gridLeftPct: 5, gridTopPct: 28, gridWidthPct: 90 },
+      swipeCalibration: { gridLeftPct: 5, gridTopPct: 28, gridWidthPct: 90, swipeDelayMs: 400 },
 
       setGridSize: (size) => set({ gridSize: size, letters: emptyGrid(size), solutions: [], selectedWord: null }),
       setLetter: (row, col, letter) => {
@@ -68,10 +68,11 @@ export const useBoggleStore = create<BoggleState>()(
       // Rebuild letters from persisted value; fall back to empty grid if not present
       // (handles old persisted data that predates letters persistence).
       merge: (persisted, current) => {
-        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number; letters?: string[][]; overlayAlpha?: number; swipeCalibration?: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number } }
+        const p = persisted as { gridSize?: GridSize; minLen?: number; maxLen?: number; letters?: string[][]; overlayAlpha?: number; swipeCalibration?: Partial<BoggleState['swipeCalibration']> }
         const size = p.gridSize ?? current.gridSize
         const letters = p.letters ?? emptyGrid(size)
-        return { ...current, ...p, letters }
+        const swipeCalibration = { ...current.swipeCalibration, ...(p.swipeCalibration ?? {}) }
+        return { ...current, ...p, letters, swipeCalibration }
       },
     }
   )

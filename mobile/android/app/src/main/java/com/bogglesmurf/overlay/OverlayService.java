@@ -59,6 +59,7 @@ public class OverlayService extends Service {
     private static float calGridTopPct   = 28f;
     private static float calGridWidthPct = 90f;
     private static int   calGridSize     = 4;
+    private static long  calSwipeDelayMs = 400L;
 
     private static OverlayService instance;
 
@@ -79,11 +80,12 @@ public class OverlayService extends Service {
         }
     }
 
-    public static void setCalibration(float leftPct, float topPct, float widthPct, int gridSize) {
+    public static void setCalibration(float leftPct, float topPct, float widthPct, int gridSize, long swipeDelayMs) {
         calGridLeftPct  = leftPct;
         calGridTopPct   = topPct;
         calGridWidthPct = widthPct;
         calGridSize     = gridSize;
+        calSwipeDelayMs = swipeDelayMs;
         if (instance != null && instance.calibrationView != null) {
             instance.calibrationView.postInvalidate();
         }
@@ -273,7 +275,7 @@ public class OverlayService extends Service {
             playBtn.setOnClickListener(v -> {
                 BoggleAccessibilityService svc = BoggleAccessibilityService.getInstance();
                 if (svc == null || entry.path == null) return;
-                svc.swipeWord(entry.path, calGridLeftPct, calGridTopPct, calGridWidthPct, calGridSize);
+                svc.swipeWord(entry.path, calGridLeftPct, calGridTopPct, calGridWidthPct, calGridSize, calSwipeDelayMs);
                 entry.isDone = true;
                 notifyDataSetChanged();
             });

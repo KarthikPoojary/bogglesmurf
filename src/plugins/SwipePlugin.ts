@@ -8,6 +8,7 @@ export interface SwipePlugin {
     gridTopPct: number
     gridWidthPct: number
     gridSize: number
+    swipeDelayMs: number
   }): Promise<void>
 }
 

@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -40,35 +42,37 @@ public class BoggleAccessibilityService extends AccessibilityService {
      * @param gridSize    4, 5, or 6
      */
     public void swipeWord(int[] flatPath, float gridLeftPct, float gridTopPct,
-                          float gridWidthPct, int gridSize) {
+                          float gridWidthPct, int gridSize, long delayMs) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
         if (flatPath == null || flatPath.length < 2) return;
 
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        float screenW = dm.widthPixels;
-        float screenH = dm.heightPixels;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            float screenW = dm.widthPixels;
+            float screenH = dm.heightPixels;
 
-        float gridLeft  = screenW * gridLeftPct  / 100f;
-        float gridTop   = screenH * gridTopPct   / 100f;
-        float cellSize  = (screenW * gridWidthPct / 100f) / gridSize;
+            float gridLeft = screenW * gridLeftPct  / 100f;
+            float gridTop  = screenH * gridTopPct   / 100f;
+            float cellSize = (screenW * gridWidthPct / 100f) / gridSize;
 
-        Path gesturePath = new Path();
-        float x0 = gridLeft + (flatPath[1] + 0.5f) * cellSize;
-        float y0 = gridTop  + (flatPath[0] + 0.5f) * cellSize;
-        gesturePath.moveTo(x0, y0);
+            Path gesturePath = new Path();
+            float x0 = gridLeft + (flatPath[1] + 0.5f) * cellSize;
+            float y0 = gridTop  + (flatPath[0] + 0.5f) * cellSize;
+            gesturePath.moveTo(x0, y0);
 
-        for (int i = 2; i < flatPath.length; i += 2) {
-            float x = gridLeft + (flatPath[i + 1] + 0.5f) * cellSize;
-            float y = gridTop  + (flatPath[i]     + 0.5f) * cellSize;
-            gesturePath.lineTo(x, y);
-        }
+            for (int i = 2; i < flatPath.length; i += 2) {
+                float x = gridLeft + (flatPath[i + 1] + 0.5f) * cellSize;
+                float y = gridTop  + (flatPath[i]     + 0.5f) * cellSize;
+                gesturePath.lineTo(x, y);
+            }
 
-        int numCells = flatPath.length / 2;
-        long duration = Math.max(numCells * 80L, 200L);
+            int numCells = flatPath.length / 2;
+            long duration = Math.max(numCells * 80L, 200L);
 
-        GestureDescription gesture = new GestureDescription.Builder()
-            .addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, duration))
-            .build();
-        dispatchGesture(gesture, null, null);
+            GestureDescription gesture = new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, duration))
+                .build();
+            dispatchGesture(gesture, null, null);
+        }, delayMs);
     }
 }
