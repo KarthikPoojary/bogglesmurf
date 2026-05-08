@@ -5,6 +5,7 @@ import { LengthRangeSlider } from './components/LengthRangeSlider'
 import { ResultsPanel } from './components/ResultsPanel'
 import { OcrCapture } from './components/OcrCapture'
 import { SyncBanner } from './components/SyncBanner'
+import { ChangelogModal } from './components/ChangelogModal'
 import { useBoggleStore } from './store/boggleStore'
 import { useGridSync } from './hooks/useGridSync'
 import { loadDictionary } from './solver/loadDictionary'
@@ -23,6 +24,7 @@ export default function App() {
   const [dictLoading, setDictLoading] = useState(true)
   const [dictError, setDictError] = useState(false)
   const [showOcr, setShowOcr] = useState(false)
+  const [showChangelog, setShowChangelog] = useState(false)
 
   const { status: syncStatus, broadcastGrid, endSession } = useGridSync()
 
@@ -68,6 +70,12 @@ export default function App() {
         {!dictLoading && !dictError && (
           <p className="text-xs text-emerald-600 mt-1">238k words ready</p>
         )}
+        <button
+          onClick={() => setShowChangelog(true)}
+          className="mt-1.5 text-[11px] text-slate-600 hover:text-slate-400 transition-colors"
+        >
+          v{__APP_VERSION__}
+        </button>
       </div>
 
       {/* Sync banner */}
@@ -141,6 +149,9 @@ export default function App() {
 
       {/* OCR modal */}
       {showOcr && <OcrCapture onClose={() => setShowOcr(false)} />}
+
+      {/* Changelog modal */}
+      {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
     </div>
   )
 }
