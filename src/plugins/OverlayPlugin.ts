@@ -14,6 +14,8 @@ export interface OverlayPlugin {
   hide(): Promise<void>
   setWords(opts: { words: WordData[], commonWords: string[] }): Promise<void>
   setAlpha(opts: { alpha: number }): Promise<void>
+  showCalibration(): Promise<void>
+  hideCalibration(): Promise<void>
   addListener(event: 'wordTap', cb: (e: { word: string }) => void): Promise<PluginListenerHandle>
 }
 

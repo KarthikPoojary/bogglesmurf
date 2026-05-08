@@ -143,6 +143,22 @@ public class OverlayPlugin extends Plugin {
         call.resolve();
     }
 
+    @PluginMethod
+    public void showCalibration(PluginCall call) {
+        if (!Settings.canDrawOverlays(getContext())) {
+            call.reject("SYSTEM_ALERT_WINDOW permission not granted");
+            return;
+        }
+        startService(OverlayService.ACTION_SHOW_CALIBRATION);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void hideCalibration(PluginCall call) {
+        startService(OverlayService.ACTION_HIDE_CALIBRATION);
+        call.resolve();
+    }
+
     private void startService(String action) {
         Intent intent = new Intent(getContext(), OverlayService.class);
         intent.setAction(action);

@@ -13,6 +13,7 @@ export function useOverlay() {
   const overlayAlpha = useBoggleStore((s) => s.overlayAlpha)
   const [hasPermission, setHasPermission] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
+  const [isCalibrating, setIsCalibrating] = useState(false)
 
   useEffect(() => {
     if (!isSupported) return
@@ -73,5 +74,21 @@ export function useOverlay() {
     await Overlay.setAlpha({ alpha })
   }, [isSupported, isVisible])
 
-  return { isSupported, hasPermission, isVisible, floatWords, hideOverlay, updateAlpha }
+  const showCalibrationGrid = useCallback(async () => {
+    if (!isSupported) return
+    if (!hasPermission) { await requestPermission(); return }
+    await Overlay.showCalibration()
+    setIsCalibrating(true)
+  }, [isSupported, hasPermission, requestPermission])
+
+  const hideCalibrationGrid = useCallback(async () => {
+    if (!isSupported) return
+    await Overlay.hideCalibration()
+    setIsCalibrating(false)
+  }, [isSupported])
+
+  return {
+    isSupported, hasPermission, isVisible, isCalibrating,
+    floatWords, hideOverlay, updateAlpha, showCalibrationGrid, hideCalibrationGrid,
+  }
 }

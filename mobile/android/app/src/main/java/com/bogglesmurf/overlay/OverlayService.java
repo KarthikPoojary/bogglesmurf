@@ -8,10 +8,12 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -37,8 +39,10 @@ import java.util.Set;
 
 public class OverlayService extends Service {
 
-    public static final String ACTION_SHOW = "com.bogglesmurf.overlay.SHOW";
-    public static final String ACTION_HIDE = "com.bogglesmurf.overlay.HIDE";
+    public static final String ACTION_SHOW             = "com.bogglesmurf.overlay.SHOW";
+    public static final String ACTION_HIDE             = "com.bogglesmurf.overlay.HIDE";
+    public static final String ACTION_SHOW_CALIBRATION = "com.bogglesmurf.overlay.SHOW_CAL";
+    public static final String ACTION_HIDE_CALIBRATION = "com.bogglesmurf.overlay.HIDE_CAL";
 
     private static final String CHANNEL_ID  = "bogglesmurf_overlay";
     private static final int    NOTIF_ID    = 1001;
@@ -80,6 +84,9 @@ public class OverlayService extends Service {
         calGridTopPct   = topPct;
         calGridWidthPct = widthPct;
         calGridSize     = gridSize;
+        if (instance != null && instance.calibrationView != null) {
+            instance.calibrationView.postInvalidate();
+        }
     }
 
     // ── WordEntry ─────────────────────────────────────────────────────────────
@@ -99,12 +106,15 @@ public class OverlayService extends Service {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    private WindowManager             windowManager;
-    private View                      overlayView;
+    private WindowManager              windowManager;
+    private View                       overlayView;
     private WindowManager.LayoutParams overlayParams;
-    private WordAdapter               wordAdapter;
-    private boolean                   isShowing  = false;
-    private String                    currentTab = "COM";
+    private WordAdapter                wordAdapter;
+    private boolean                    isShowing  = false;
+    private String                     currentTab = "COM";
+
+    private View    calibrationView      = null;
+    private boolean isCalibrationShowing = false;
 
     @Override
     public void onCreate() {
@@ -117,6 +127,7 @@ public class OverlayService extends Service {
     public void onDestroy() {
         instance = null;
         removeOverlay();
+        removeCalibrationView();
         super.onDestroy();
     }
 
@@ -125,8 +136,10 @@ public class OverlayService extends Service {
         if (intent == null) return START_STICKY;
         ensureForeground();
         String action = intent.getAction();
-        if (ACTION_SHOW.equals(action)) showOverlay();
-        else if (ACTION_HIDE.equals(action)) { removeOverlay(); stopSelf(); }
+        if      (ACTION_SHOW.equals(action))             showOverlay();
+        else if (ACTION_HIDE.equals(action))             { removeOverlay();       if (!isCalibrationShowing) stopSelf(); }
+        else if (ACTION_SHOW_CALIBRATION.equals(action)) showCalibrationGrid();
+        else if (ACTION_HIDE_CALIBRATION.equals(action)) { removeCalibrationView(); if (!isShowing) stopSelf(); }
         return START_STICKY;
     }
 
@@ -266,6 +279,83 @@ public class OverlayService extends Service {
             });
 
             return convertView;
+        }
+    }
+
+    // ── Calibration grid overlay ──────────────────────────────────────────────
+
+    private void showCalibrationGrid() {
+        if (isCalibrationShowing) {
+            if (calibrationView != null) calibrationView.postInvalidate();
+            return;
+        }
+        calibrationView = new CalibrationView(this);
+
+        int layerType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            : WindowManager.LayoutParams.TYPE_PHONE;
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            layerType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        );
+        windowManager.addView(calibrationView, params);
+        isCalibrationShowing = true;
+    }
+
+    private void removeCalibrationView() {
+        if (isCalibrationShowing && calibrationView != null) {
+            windowManager.removeView(calibrationView);
+            calibrationView = null;
+            isCalibrationShowing = false;
+        }
+    }
+
+    private class CalibrationView extends View {
+        private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fillPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint textPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        CalibrationView(Context ctx) {
+            super(ctx);
+            borderPaint.setColor(0xFF00E676);
+            borderPaint.setStyle(Paint.Style.STROKE);
+            borderPaint.setStrokeWidth(3f);
+
+            fillPaint.setColor(0x1A00E676); // very faint green tint per cell
+            fillPaint.setStyle(Paint.Style.FILL);
+
+            textPaint.setColor(0xFFFFFFFF);
+            textPaint.setTextSize(28f);
+            textPaint.setShadowLayer(4f, 0, 0, 0xFF000000);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            float sw = dm.widthPixels;
+            float sh = dm.heightPixels;
+
+            float left     = sw * calGridLeftPct  / 100f;
+            float top      = sh * calGridTopPct   / 100f;
+            float cellSize = (sw * calGridWidthPct / 100f) / calGridSize;
+
+            for (int r = 0; r < calGridSize; r++) {
+                for (int c = 0; c < calGridSize; c++) {
+                    float x = left + c * cellSize;
+                    float y = top  + r * cellSize;
+                    canvas.drawRect(x, y, x + cellSize, y + cellSize, fillPaint);
+                    canvas.drawRect(x, y, x + cellSize, y + cellSize, borderPaint);
+                    String label = r + "," + c;
+                    float tw = textPaint.measureText(label);
+                    canvas.drawText(label, x + (cellSize - tw) / 2f, y + cellSize / 2f + 10f, textPaint);
+                }
+            }
         }
     }
 

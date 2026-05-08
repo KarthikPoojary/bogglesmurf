@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useBoggleStore } from '../store/boggleStore'
 import { loadCommonWords } from '../solver/loadCommonWords'
 import { useOverlay } from '../hooks/useOverlay'
-import { Overlay } from '../plugins/OverlayPlugin'
 import { Swipe } from '../plugins/SwipePlugin'
+import { SettingsSheet } from './SettingsSheet'
 
 type Tab = 'common' | 'unusual' | 'all'
 
@@ -16,21 +16,17 @@ function boggleScore(len: number): number {
 }
 
 export function ResultsPanel() {
-  const { solutions, selectedWord, setSelectedWord, isSolving, overlayAlpha, setOverlayAlpha, swipeCalibration, setSwipeCalibration, gridSize } = useBoggleStore()
+  const { solutions, selectedWord, setSelectedWord, isSolving, swipeCalibration, gridSize } = useBoggleStore()
   const [commonWords, setCommonWords] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('common')
-  const [swipeEnabled, setSwipeEnabled] = useState(false)
-  const { isSupported: overlaySupported, isVisible: overlayVisible, floatWords, hideOverlay, updateAlpha } = useOverlay()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const {
+    isSupported: overlaySupported, isVisible: overlayVisible,
+    isCalibrating, floatWords, hideOverlay, updateAlpha,
+    showCalibrationGrid, hideCalibrationGrid,
+  } = useOverlay()
 
   useEffect(() => { loadCommonWords().then(setCommonWords) }, [])
-
-  useEffect(() => {
-    if (!overlaySupported) return
-    const check = () => Swipe.isEnabled().then(({ enabled }) => setSwipeEnabled(enabled))
-    check()
-    document.addEventListener('visibilitychange', check)
-    return () => document.removeEventListener('visibilitychange', check)
-  }, [overlaySupported])
 
   if (isSolving) {
     return <div className="flex items-center justify-center h-32 text-slate-400 text-sm">Solving…</div>
@@ -105,21 +101,28 @@ export function ResultsPanel() {
         <p className="text-xs text-slate-400">{displayed.length} words</p>
         <div className="flex gap-3 items-center">
           {overlaySupported && (
-            <button
-              onClick={() => {
-                if (overlayVisible) {
-                  hideOverlay()
-                } else {
-                  if (swipeEnabled) {
+            <>
+              <button
+                onClick={() => {
+                  if (overlayVisible) {
+                    hideOverlay()
+                  } else {
                     Swipe.setCalibration({ ...swipeCalibration, gridSize }).catch(() => {})
+                    floatWords(solutions, commonWords)
                   }
-                  floatWords(solutions, commonWords)
-                }
-              }}
-              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-            >
-              {overlayVisible ? 'Hide overlay' : 'Float ↗'}
-            </button>
+                }}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                {overlayVisible ? 'Hide overlay' : 'Float ↗'}
+              </button>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                aria-label="Overlay settings"
+              >
+                ⚙
+              </button>
+            </>
           )}
           <button onClick={copyAll} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
             Copy all
@@ -127,71 +130,16 @@ export function ResultsPanel() {
         </div>
       </div>
 
-      {/* Overlay alpha setting — Android only */}
       {overlaySupported && (
-        <div className="flex flex-col gap-2 bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Overlay transparency</span>
-            <span className="text-[11px] text-slate-500">{Math.round((1 - overlayAlpha) * 100)}%</span>
-          </div>
-          <input
-            type="range" min={0.3} max={1} step={0.05}
-            value={overlayAlpha}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value)
-              setOverlayAlpha(v)
-              updateAlpha(v)
-              if (!overlayVisible) Overlay.setAlpha({ alpha: v }).catch(() => {})
-            }}
-            className="w-full accent-violet-500"
-          />
-        </div>
-      )}
-
-      {/* Swipe setup — Android only */}
-      {overlaySupported && (
-        <div className="flex flex-col gap-2 bg-slate-900/60 rounded-xl p-3 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Auto-swipe setup</span>
-            {swipeEnabled
-              ? <span className="text-[10px] text-emerald-400">● Service active</span>
-              : <button
-                  onClick={() => Swipe.openSettings()}
-                  className="text-[10px] text-violet-400 underline"
-                >Enable accessibility service</button>
-            }
-          </div>
-          {swipeEnabled && (
-            <>
-              <div className="flex flex-col gap-1.5 text-[11px] text-slate-500">
-                {[
-                  { label: 'Grid left', key: 'gridLeftPct' as const, min: 0, max: 30 },
-                  { label: 'Grid top', key: 'gridTopPct' as const, min: 0, max: 60 },
-                  { label: 'Grid width', key: 'gridWidthPct' as const, min: 50, max: 100 },
-                ].map(({ label, key, min, max }) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span className="w-20 shrink-0">{label}</span>
-                    <input
-                      type="range" min={min} max={max} step={1}
-                      value={swipeCalibration[key]}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value)
-                        const next = { ...swipeCalibration, [key]: v }
-                        setSwipeCalibration(next)
-                        Swipe.setCalibration({ ...next, gridSize }).catch(() => {})
-                      }}
-                      className="flex-1 accent-violet-500"
-                    />
-                    <span className="w-8 text-right">{Math.round(swipeCalibration[key])}%</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] text-slate-600">
-                Adjust until tapping ▶ on a word traces the right path in Netflix Boggle
-              </p>
-            </>
-          )}
-        </div>
+        <SettingsSheet
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          isVisible={overlayVisible}
+          isCalibrating={isCalibrating}
+          updateAlpha={updateAlpha}
+          onShowCalibration={showCalibrationGrid}
+          onHideCalibration={hideCalibrationGrid}
+        />
       )}
 
       {/* Word groups */}
