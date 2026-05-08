@@ -104,8 +104,9 @@ public class OverlayService extends Service {
         calGridWidthPct = widthPct;
         calGridSize     = gridSize;
         calSwipeDelayMs = swipeDelayMs;
-        if (instance != null && instance.calibrationView != null) {
-            instance.calibrationView.postInvalidate();
+        if (instance != null && instance.isCalibrationShowing) {
+            instance.updateCalibrationWindow();
+            if (instance.calibrationView != null) instance.calibrationView.postInvalidate();
         }
     }
 
@@ -133,8 +134,9 @@ public class OverlayService extends Service {
     private boolean                    isShowing  = false;
     private String                     currentTab = "COM";
 
-    private View    calibrationView      = null;
-    private boolean isCalibrationShowing = false;
+    private View                       calibrationView      = null;
+    private WindowManager.LayoutParams calibrationParams    = null;
+    private boolean                    isCalibrationShowing = false;
 
     @Override
     public void onCreate() {
@@ -306,6 +308,7 @@ public class OverlayService extends Service {
 
     private void showCalibrationGrid() {
         if (isCalibrationShowing) {
+            updateCalibrationWindow();
             if (calibrationView != null) calibrationView.postInvalidate();
             return;
         }
@@ -315,22 +318,45 @@ public class OverlayService extends Service {
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             : WindowManager.LayoutParams.TYPE_PHONE;
 
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+        calibrationParams = buildCalibrationParams(layerType);
+        windowManager.addView(calibrationView, calibrationParams);
+        isCalibrationShowing = true;
+    }
+
+    private WindowManager.LayoutParams buildCalibrationParams(int layerType) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int left  = Math.round(dm.widthPixels  * calGridLeftPct  / 100f);
+        int top   = Math.round(dm.heightPixels * calGridTopPct   / 100f);
+        int width = Math.round(dm.widthPixels  * calGridWidthPct / 100f);
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+            width, width,
             layerType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         );
-        windowManager.addView(calibrationView, params);
-        isCalibrationShowing = true;
+        p.gravity = Gravity.TOP | Gravity.START;
+        p.x = left;
+        p.y = top;
+        return p;
+    }
+
+    private void updateCalibrationWindow() {
+        if (!isCalibrationShowing || calibrationView == null || calibrationParams == null) return;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        calibrationParams.x      = Math.round(dm.widthPixels  * calGridLeftPct  / 100f);
+        calibrationParams.y      = Math.round(dm.heightPixels * calGridTopPct   / 100f);
+        calibrationParams.width  = Math.round(dm.widthPixels  * calGridWidthPct / 100f);
+        calibrationParams.height = calibrationParams.width;
+        try { windowManager.updateViewLayout(calibrationView, calibrationParams); } catch (Exception ignored) {}
     }
 
     private void removeCalibrationView() {
         if (isCalibrationShowing && calibrationView != null) {
             windowManager.removeView(calibrationView);
-            calibrationView = null;
+            calibrationView   = null;
+            calibrationParams = null;
             isCalibrationShowing = false;
         }
     }
@@ -344,11 +370,13 @@ public class OverlayService extends Service {
         private final Paint fillPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint textPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint handlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint hintPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         private int   mode = MODE_NONE;
-        private float lastX, lastY;
-        private final float handle; // px — size of the resize touch zone
+        private final float handle; // px touch zone for resize corner
+
+        // Sticky-finger: anchored at the raw screen position where the gesture started
+        private float rawDownX, rawDownY;
+        private float valAtDown1, valAtDown2; // left+top pcts (drag) or width pct (resize)
 
         CalibrationView(Context ctx) {
             super(ctx);
@@ -367,31 +395,17 @@ public class OverlayService extends Service {
 
             handlePaint.setColor(0xFF00E676);
             handlePaint.setStyle(Paint.Style.FILL);
-
-            hintPaint.setColor(0xCCFFFFFF);
-            hintPaint.setTextSize(28f);
-            hintPaint.setShadowLayer(5f, 0, 0, 0xFF000000);
-        }
-
-        private float[] getBounds() {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            return new float[]{
-                dm.widthPixels  * calGridLeftPct  / 100f,  // left
-                dm.heightPixels * calGridTopPct   / 100f,  // top
-                dm.widthPixels  * calGridWidthPct / 100f   // width (square grid → height = width)
-            };
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
-            float[] b = getBounds();
-            float left = b[0], top = b[1], width = b[2];
-            float cellSize = width / calGridSize;
+            // View bounds match the grid exactly — draw in local coords (origin = grid top-left)
+            float w = getWidth();
+            float cellSize = w / calGridSize;
 
             for (int r = 0; r < calGridSize; r++) {
                 for (int c = 0; c < calGridSize; c++) {
-                    float x = left + c * cellSize;
-                    float y = top  + r * cellSize;
+                    float x = c * cellSize, y = r * cellSize;
                     canvas.drawRect(x, y, x + cellSize, y + cellSize, fillPaint);
                     canvas.drawRect(x, y, x + cellSize, y + cellSize, borderPaint);
                     String lbl = r + "," + c;
@@ -402,48 +416,39 @@ public class OverlayService extends Service {
 
             // Resize handle — filled square at bottom-right corner
             float hs = handle * 0.55f;
-            canvas.drawRect(left + width - hs, top + width - hs, left + width, top + width, handlePaint);
-
-            // Hint text below the grid
-            String hint = "Drag grid to move  ·  corner to resize";
-            float tw = hintPaint.measureText(hint);
-            canvas.drawText(hint, left + (width - tw) / 2f, top + width + 40f, hintPaint);
+            canvas.drawRect(w - hs, w - hs, w, w, handlePaint);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent ev) {
-            float[] b = getBounds();
-            float left = b[0], top = b[1], width = b[2];
+            float w = getWidth(); // view width == grid width in px
             float ex = ev.getX(), ey = ev.getY();
 
             switch (ev.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    // Bottom-right corner → resize
-                    if (ex >= left + width - handle && ey >= top + width - handle
-                            && ex <= left + width + handle / 2f && ey <= top + width + handle / 2f) {
+                    if (ex >= w - handle && ey >= w - handle) {
                         mode = MODE_RESIZE;
-                    } else if (ex >= left && ex <= left + width && ey >= top && ey <= top + width) {
-                        // Inside grid → drag
-                        mode = MODE_DRAG;
+                        rawDownX   = ev.getRawX();
+                        valAtDown1 = calGridWidthPct;
                     } else {
-                        mode = MODE_NONE;
-                        return false; // outside grid — don't consume
+                        mode = MODE_DRAG;
+                        rawDownX   = ev.getRawX();
+                        rawDownY   = ev.getRawY();
+                        valAtDown1 = calGridLeftPct;
+                        valAtDown2 = calGridTopPct;
                     }
-                    lastX = ex; lastY = ey;
                     return true;
 
                 case MotionEvent.ACTION_MOVE:
-                    if (mode == MODE_NONE) return false;
                     DisplayMetrics dm = getResources().getDisplayMetrics();
                     float sw = dm.widthPixels, sh = dm.heightPixels;
-                    float dx = ex - lastX, dy = ey - lastY;
-                    lastX = ex; lastY = ey;
                     if (mode == MODE_DRAG) {
-                        calGridLeftPct = Math.max(0,  Math.min(50, calGridLeftPct + dx / sw * 100));
-                        calGridTopPct  = Math.max(0,  Math.min(70, calGridTopPct  + dy / sh * 100));
-                    } else {
-                        calGridWidthPct = Math.max(30, Math.min(100, calGridWidthPct + dx / sw * 100));
+                        calGridLeftPct = Math.max(0,  Math.min(50, valAtDown1 + (ev.getRawX() - rawDownX) / sw * 100));
+                        calGridTopPct  = Math.max(0,  Math.min(70, valAtDown2 + (ev.getRawY() - rawDownY) / sh * 100));
+                    } else if (mode == MODE_RESIZE) {
+                        calGridWidthPct = Math.max(30, Math.min(100, valAtDown1 + (ev.getRawX() - rawDownX) / sw * 100));
                     }
+                    updateCalibrationWindow(); // reposition window to follow the drag
                     postInvalidate();
                     return true;
 
