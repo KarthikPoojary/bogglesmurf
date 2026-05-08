@@ -17,6 +17,7 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -115,7 +116,7 @@ public class OverlayPlugin extends Plugin {
         List<OverlayService.WordEntry> entries = new ArrayList<>();
         try {
             for (int i = 0; i < wordsJson.length(); i++) {
-                JSObject obj = wordsJson.getJSONObject(i);
+                JSONObject obj = wordsJson.getJSONObject(i);
                 String word = obj.getString("word");
 
                 // path is a flat int array [row0,col0,row1,col1,...]
