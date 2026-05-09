@@ -11,7 +11,7 @@ It's a personal project — built for fun, learning, and the sweet, sweet taste 
 ## 🌐 Live app
 👉 [bogglesmurf.pages.dev](https://bogglesmurf.pages.dev) *(deployment coming soon)*
 
-→ [Changelog](https://github.com/KarthikPoojary/bogglesmurf/commits/main)
+→ Tap the version badge in the app to see the full changelog
 
 ## Features
 - 📱 **Works everywhere** — iOS, Android, desktop. One URL, no install needed.

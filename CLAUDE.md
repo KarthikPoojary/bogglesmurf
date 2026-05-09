@@ -118,6 +118,7 @@ src/components/BoggleGrid.tsx   — N×N inputs, auto-advance, path step badges
 src/components/OcrCapture.tsx   — photo/camera modal, no manual size picker
 src/components/ResultsPanel.tsx — Common / Unusual / All tabs, Boggle scores, copy-all, ⚙ button
 src/components/SettingsSheet.tsx — slide-up bottom sheet: transparency, swipe calibration + delay, calibration grid preview
+src/components/ChangelogModal.tsx — in-app changelog modal; parses CHANGELOG.md at build time via Vite ?raw import
 src/components/SyncBanner.tsx   — live session countdown, host vs watcher state
 src/components/GridSizeSelector.tsx
 src/components/LengthRangeSlider.tsx
@@ -155,6 +156,7 @@ scripts/deploy-android.sh.example — template with placeholders
 - **Sync server:** WebSocket on port 5174, runs only in dev via `./scripts/dev.sh`
 - **Tailwind v4:** CSS-native, no `tailwind.config.js`
 - **Android foreground service:** `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`; on API 34+ requires 3-arg `startForeground()`
+- **App version:** injected as `__APP_VERSION__` via `vite.config.ts` `define` (reads `package.json` at build time); declared in `src/global.d.ts`; displayed as a clickable badge in the header that opens `ChangelogModal`; update `package.json` version + add CHANGELOG entry for each release
 
 ## Commit rules
 
