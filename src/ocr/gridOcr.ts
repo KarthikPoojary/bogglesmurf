@@ -19,7 +19,7 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   })
 }
 
-function imageToCanvas(img: HTMLImageElement, maxSize = 1600): HTMLCanvasElement {
+function imageToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement {
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
   const w = Math.round(img.width * scale)
   const h = Math.round(img.height * scale)
@@ -31,26 +31,38 @@ function imageToCanvas(img: HTMLImageElement, maxSize = 1600): HTMLCanvasElement
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, w, h)
   ctx.drawImage(img, 0, 0, w, h)
-  // Boost contrast so Tesseract reads dark-on-light letters better
-  boostContrast(ctx, w, h)
+  preprocessForOcr(ctx, w, h)
   return canvas
 }
 
-function boostContrast(ctx: CanvasRenderingContext2D, w: number, h: number) {
+// Converts to grayscale, applies percentile-based contrast stretch, then inverts.
+// Inversion is critical: Boggle tiles have WHITE letters on DARK tiles — Tesseract
+// expects dark text on light background, so we flip it.
+// Percentile stretch (5th–95th) avoids the dark TV bezel and bright hotspots
+// dominating the range and making the normalization a near-no-op.
+function preprocessForOcr(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const id = ctx.getImageData(0, 0, w, h)
   const d = id.data
-  let lo = 255, hi = 0
-  for (let i = 0; i < d.length; i += 4) {
-    const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])
-    if (g < lo) lo = g
-    if (g > hi) hi = g
+  const n = d.length >> 2
+
+  // Pass 1: grayscale luminance
+  const lum = new Uint8Array(n)
+  for (let i = 0; i < n; i++) {
+    lum[i] = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2] + 0.5) | 0
   }
+
+  // Pass 2: 5th / 95th percentile contrast stretch
+  const sorted = lum.slice().sort((a, b) => a - b)
+  const lo = sorted[(n * 0.05) | 0]
+  const hi = sorted[(n * 0.95) | 0]
   const range = hi - lo || 1
-  for (let i = 0; i < d.length; i += 4) {
-    const g = Math.round(((0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) - lo) / range * 255)
-    d[i] = d[i + 1] = d[i + 2] = g
-    // d[i+3] (alpha) unchanged
+
+  // Pass 3: stretch then invert
+  for (let i = 0; i < n; i++) {
+    const stretched = Math.max(0, Math.min(255, (((lum[i] - lo) / range) * 255 + 0.5) | 0))
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255 - stretched
   }
+
   ctx.putImageData(id, 0, 0)
 }
 
