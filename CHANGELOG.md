@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- OCR: percentile contrast stretch (5th–95th) + invert — fixes near-zero accuracy on dark Netflix Boggle tiles; Tesseract expects dark text on light background so inversion is now applied after stretch. maxSize bumped 1600→2000 for sharper letter detail on high-res phones.
+
 ## [0.7.0] - 2026-05-08 — M4: Settings sheet, drag calibration, swipe fixes
 
 ### Added
