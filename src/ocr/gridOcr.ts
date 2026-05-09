@@ -5,6 +5,7 @@ interface LetterPoint {
   cx: number
   cy: number
   confidence: number
+  height: number
 }
 
 // ─── image helpers ────────────────────────────────────────────────────────────
@@ -19,7 +20,7 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   })
 }
 
-function imageToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement {
+function drawToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement {
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
   const w = Math.round(img.width * scale)
   const h = Math.round(img.height * scale)
@@ -27,31 +28,85 @@ function imageToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement
   canvas.width = w
   canvas.height = h
   const ctx = canvas.getContext('2d')!
-  // White background
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, w, h)
   ctx.drawImage(img, 0, 0, w, h)
-  preprocessForOcr(ctx, w, h)
   return canvas
 }
 
-// Converts to grayscale, applies percentile-based contrast stretch, then inverts.
-// Inversion is critical: Boggle tiles have WHITE letters on DARK tiles — Tesseract
-// expects dark text on light background, so we flip it.
-// Percentile stretch (5th–95th) avoids the dark TV bezel and bright hotspots
-// dominating the range and making the normalization a near-no-op.
+// Detect the bounding box of dark-purple Boggle tiles using a 1-D projection:
+// count purple-ish pixels per row and per column, find the span where they're dense.
+// Returns pixel bounds, or null if not enough purple pixels found.
+function detectTileRegion(
+  d: Uint8ClampedArray, imgW: number, imgH: number
+): { x: number; y: number; w: number; h: number } | null {
+  const rowHits = new Uint32Array(imgH)
+  const colHits = new Uint32Array(imgW)
+
+  for (let y = 0; y < imgH; y++) {
+    for (let x = 0; x < imgW; x++) {
+      const i = (y * imgW + x) * 4
+      const r = d[i], g = d[i + 1], b = d[i + 2]
+      const sum = r + g + b
+      // Dark purple: not near-black (sum>90), not bright (sum<420), blue dominates
+      if (sum > 90 && sum < 420 && b > r * 1.05 && b > g * 1.15) {
+        rowHits[y]++
+        colHits[x]++
+      }
+    }
+  }
+
+  // A row/col counts as "tile-containing" when enough purple pixels are present
+  const rowThresh = imgW * 0.025
+  const colThresh = imgH * 0.025
+
+  let y0 = -1, y1 = -1, x0 = -1, x1 = -1
+  for (let y = 0; y < imgH; y++) {
+    if (rowHits[y] > rowThresh) { if (y0 < 0) y0 = y; y1 = y }
+  }
+  for (let x = 0; x < imgW; x++) {
+    if (colHits[x] > colThresh) { if (x0 < 0) x0 = x; x1 = x }
+  }
+
+  if (x0 < 0 || y0 < 0) return null
+  const gw = x1 - x0, gh = y1 - y0
+  if (gw < imgW * 0.05 || gh < imgH * 0.05) return null
+
+  // Pad by 8% so we don't clip tile edges
+  const px = Math.round(gw * 0.08), py = Math.round(gh * 0.08)
+  const rx = Math.max(0, x0 - px)
+  const ry = Math.max(0, y0 - py)
+  return {
+    x: rx, y: ry,
+    w: Math.min(imgW - rx, gw + 2 * px),
+    h: Math.min(imgH - ry, gh + 2 * py),
+  }
+}
+
+function cropCanvas(
+  src: HTMLCanvasElement, x: number, y: number, cw: number, ch: number
+): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = cw; c.height = ch
+  c.getContext('2d')!.drawImage(src, x, y, cw, ch, 0, 0, cw, ch)
+  return c
+}
+
+// Percentile contrast stretch then invert.
+// Inversion is required: Boggle tiles have WHITE letters on DARK tiles;
+// Tesseract expects dark text on a light background.
 function preprocessForOcr(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const id = ctx.getImageData(0, 0, w, h)
   const d = id.data
   const n = d.length >> 2
 
-  // Pass 1: grayscale luminance
+  // Pass 1: grayscale
   const lum = new Uint8Array(n)
   for (let i = 0; i < n; i++) {
     lum[i] = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2] + 0.5) | 0
   }
 
-  // Pass 2: 5th / 95th percentile contrast stretch
+  // Pass 2: 5th/95th percentile stretch
   const sorted = lum.slice().sort((a, b) => a - b)
   const lo = sorted[(n * 0.05) | 0]
   const hi = sorted[(n * 0.95) | 0]
@@ -59,46 +114,32 @@ function preprocessForOcr(ctx: CanvasRenderingContext2D, w: number, h: number) {
 
   // Pass 3: stretch then invert
   for (let i = 0; i < n; i++) {
-    const stretched = Math.max(0, Math.min(255, (((lum[i] - lo) / range) * 255 + 0.5) | 0))
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255 - stretched
+    const s = Math.max(0, Math.min(255, (((lum[i] - lo) / range) * 255 + 0.5) | 0))
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255 - s
   }
-
   ctx.putImageData(id, 0, 0)
 }
 
 // ─── 1-D clustering (gap-based) ───────────────────────────────────────────────
-// Groups a list of coordinate values into clusters by finding large gaps.
-// Returns the center of each cluster, sorted ascending.
 
 function clusterCenters(rawValues: number[]): number[] {
   if (rawValues.length === 0) return []
-
-  // Deduplicate by rounding to nearest 2px so near-identical values merge
   const sorted = [...new Set(rawValues.map((v) => Math.round(v / 2) * 2))].sort((a, b) => a - b)
-
   const gaps = sorted.slice(1).map((v, i) => v - sorted[i])
   if (gaps.length === 0) return [sorted[0]]
-
-  // Use median gap as baseline — gaps > 2× median are row/column dividers
   const medGap = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)]
-  const threshold = Math.max(medGap * 2, 5) // at least 5px
-
+  const threshold = Math.max(medGap * 2, 5)
   const clusters: number[][] = [[sorted[0]]]
   for (let i = 0; i < gaps.length; i++) {
-    if (gaps[i] > threshold) {
-      clusters.push([sorted[i + 1]])
-    } else {
-      clusters[clusters.length - 1].push(sorted[i + 1])
-    }
+    if (gaps[i] > threshold) clusters.push([sorted[i + 1]])
+    else clusters[clusters.length - 1].push(sorted[i + 1])
   }
-
   return clusters.map((c) => c.reduce((a, b) => a + b, 0) / c.length)
 }
 
 function nearestIndex(centers: number[], value: number): number {
   return centers.reduce(
-    (best, c, i) => (Math.abs(c - value) < Math.abs(centers[best] - value) ? i : best),
-    0
+    (best, c, i) => (Math.abs(c - value) < Math.abs(centers[best] - value) ? i : best), 0
   )
 }
 
@@ -114,27 +155,41 @@ export async function ocrGrid(
   file: File,
   onProgress?: (msg: OcrProgressMsg) => void
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
-  // Lazy-load Tesseract — only fetched when camera mode is opened
   const { createWorker, PSM } = await import('tesseract.js')
 
   onProgress?.('Loading OCR engine…')
   const img = await loadImageFromFile(file)
-  const canvas = imageToCanvas(img)
+
+  // Draw at full resolution first (no preprocessing yet — we need color for detection)
+  const fullCanvas = drawToCanvas(img)
+  const fullCtx = fullCanvas.getContext('2d')!
+
+  onProgress?.('Detecting grid region…')
+
+  // Crop to just the tile region before preprocessing.
+  // This eliminates room background, TV bezel, UI chrome (timer, player banners)
+  // and gives the contrast-stretch a much better pixel distribution to work with.
+  const pixelData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height).data
+  const region = detectTileRegion(pixelData, fullCanvas.width, fullCanvas.height)
+
+  const ocrCanvas = region
+    ? cropCanvas(fullCanvas, region.x, region.y, region.w, region.h)
+    : fullCanvas
+
+  preprocessForOcr(ocrCanvas.getContext('2d')!, ocrCanvas.width, ocrCanvas.height)
 
   const worker = await createWorker('eng')
   await worker.setParameters({
     tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-    // SPARSE_TEXT: find characters scattered anywhere in the image — perfect for a grid
     tessedit_pageseg_mode: PSM.SPARSE_TEXT,
   })
 
   onProgress?.('Scanning for letters…')
-  const { data } = await worker.recognize(canvas)
+  const { data } = await worker.recognize(ocrCanvas)
   await worker.terminate()
 
   onProgress?.('Detecting grid layout…')
 
-  // Collect every individual symbol — traverse blocks→paragraphs→lines→words→symbols
   const letters: LetterPoint[] = []
   for (const block of data.blocks ?? []) {
     for (const para of block.paragraphs) {
@@ -142,12 +197,13 @@ export async function ocrGrid(
         for (const word of line.words) {
           for (const sym of word.symbols) {
             const ch = sym.text.trim().toUpperCase()
-            if (/^[A-Z]$/.test(ch) && sym.confidence > 15) {
+            if (/^[A-Z]$/.test(ch) && sym.confidence > 5) {
               letters.push({
                 char: ch,
                 cx: (sym.bbox.x0 + sym.bbox.x1) / 2,
                 cy: (sym.bbox.y0 + sym.bbox.y1) / 2,
                 confidence: sym.confidence,
+                height: sym.bbox.y1 - sym.bbox.y0,
               })
             }
           }
@@ -156,14 +212,23 @@ export async function ocrGrid(
     }
   }
 
+  // Filter to large letters only — removes small residual UI text
+  // (player name banners, timer) that may survive the crop.
+  // Grid tile letters are always the tallest characters in the image.
+  if (letters.length > 0) {
+    const heights = letters.map((l) => l.height).sort((a, b) => a - b)
+    const medH = heights[Math.floor(heights.length / 2)]
+    const minH = medH * 0.55
+    letters.splice(0, letters.length, ...letters.filter((l) => l.height >= minH))
+  }
+
   if (letters.length < 9) {
     throw new Error(
       `Only found ${letters.length} letter${letters.length === 1 ? '' : 's'}. ` +
-      'Try a flatter photo with even lighting and the whole grid in frame.'
+      'Try a flatter photo with the whole grid filling the frame.'
     )
   }
 
-  // Cluster Y-values into rows, X-values into columns
   const rowCenters = clusterCenters(letters.map((l) => l.cy))
   const colCenters = clusterCenters(letters.map((l) => l.cx))
 
@@ -172,10 +237,7 @@ export async function ocrGrid(
 
   onProgress?.(`Detected ${gridSize}×${gridSize} grid — mapping ${letters.length} letters…`)
 
-  // Map each letter to its closest row/col cluster
   const grid: string[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(''))
-
-  // Where multiple letters map to the same cell, keep highest-confidence one
   const confidence: number[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(-1))
 
   for (const l of letters) {
