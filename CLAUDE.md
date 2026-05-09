@@ -41,30 +41,50 @@ React 19 + TypeScript · Vite 8 · Tailwind CSS v4 (`@import "tailwindcss"`, no 
 | M2 — Android overlay (float over Netflix, COM/UNQ/ALL tabs, alpha slider) | ✅ | |
 | M3 — Auto-swipe via Android Accessibility Service | ✅ | |
 | M4 — Settings sheet, calibration grid overlay, swipe delay, overlay passthrough fix | ✅ | |
-| 4 — Cloudflare Pages deploy | 🔲 **next** | |
+| OCR fix — percentile contrast + invert for dark-tile Boggle grids | ✅ | on branch, not merged |
+| 4 — Cloudflare Pages deploy | 🔲 | on branch, needs CF secrets |
+| M5 — Zero-touch auto-calibration (screenshot tile detection) | 🔲 **next** | see plan below |
+| M6 — Swipe-all / gesture queue | 🔲 | |
 | 5 — Polish (dark mode toggle, haptics, sort options) | 🔲 | |
 | 6 — WordPathOverlay SVG animation | 🔲 | |
 | 7 — Lighthouse 90+, MIT license, docs | 🔲 | |
-| M5 — Swipe-all / gesture queue | 🔲 | See suggestions below |
 
-## Immediate next task
+## Current working branch
 
-**Phase 4 — Cloudflare Pages deploy**
-- Build: `pnpm build`, output dir: `dist/`
-- Auto-deploy from `main` branch
-- Live URL target: `bogglesmurf.pages.dev`
+`claude/check-project-status-YXmHd` — ahead of main with:
+- `fix(ocr)` — percentile contrast stretch + inversion for dark-tile grids (purple tiles on pink bg)
+- `feat(deploy)` — Cloudflare Pages deploy workflow + `_headers`
 
-## Suggested next features (M5 and beyond)
+Merge to main once: (a) OCR fix is verified on phone, (b) CF secrets added to GitHub.
 
-| Feature | What it does | Notes |
-|---------|-------------|-------|
-| **Swipe-all** | One tap to auto-queue and swipe every word in the current tab, with the configured delay between each | Most impactful M5 feature |
-| **Gesture speed slider** | Controls ms-per-cell (currently hardcoded 80ms) — some Boggle engines need slower tracing | Add to SettingsSheet |
-| **Auto-dismiss done words** | Option to hide (not just strikethrough) words already swiped | Less visual clutter mid-game |
-| **Word sort options** | Sort by length desc, score, alphabetical, or estimated path efficiency | Phase 5 / Polish |
-| **Haptic feedback** | Vibrate on ▶ tap and on word-found confirmation | Phase 5 |
-| **Dark/light mode toggle** | Explicit toggle, not just system | Phase 5 |
-| **SVG word path animation** | Animated stroke tracing the selected word across the grid in the web UI | Phase 6 |
+## Immediate next task — M5: Zero-touch auto-calibration
+
+**Goal:** user never touches a calibration slider. First ▶ tap on any word auto-detects the Boggle grid on screen and swipes immediately.
+
+**Approach — screenshot tile detection via Accessibility Service:**
+
+1. On first ▶ tap (or whenever `swipeCalibration` is null), call `BoggleAccessibilityService.takeScreenshot()` (API 30+, no extra permission needed beyond the accessibility service)
+2. In `BoggleAccessibilityService.java`, analyze the bitmap:
+   - Convert to HSV
+   - Threshold for the tile hue/saturation range (dark purple ~250–270° hue, high saturation) — works for the Netflix Boggle color scheme
+   - Find connected components → candidate tile blobs
+   - Filter by aspect ratio (~1:1), minimum size, and count (expect 16, 25, or 36 blobs for 4×4/5×5/6×6)
+   - Fit a regular grid to the blob centers → derive left%, top%, width%, gridSize
+3. Store result into `OverlayService` calibration fields (same fields as the manual sliders)
+4. Dispatch swipe immediately using those calibrated values
+5. If detection fails (< 9 blobs found, non-square layout): fall back to a one-time guided tap flow ("Tap top-left tile, then bottom-right tile") — 2 taps, no sliders
+
+**Why this beats manual calibration:**
+- Zero setup for the user — just tap ▶ and it works
+- Re-calibrates automatically if the game UI changes size/position
+- The accessibility service screenshot requires no new permissions
+
+**Files to create/modify:**
+- `mobile/android/app/src/main/java/com/bogglesmurf/accessibility/BoggleAccessibilityService.java` — add `autoDetectGrid(Bitmap)` method
+- `mobile/android/app/src/main/java/com/bogglesmurf/accessibility/SwipePlugin.java` — add `autoCalibrate()` plugin method that triggers the screenshot + detection
+- `src/plugins/SwipePlugin.ts` — add `autoCalibrate(): Promise<{ success: boolean }>` 
+- `src/hooks/useOverlay.ts` — call `Swipe.autoCalibrate()` before first swipe if calibration is null
+- Remove the manual calibration sliders from `SettingsSheet.tsx` once auto-cal is working
 
 ## Mobile — Android (Capacitor)
 
@@ -149,6 +169,7 @@ scripts/deploy-android.sh.example — template with placeholders
 - **Dictionary:** SOWPODS 3–12 letters, 238k words, `public/dictionary.txt` (3.1 MB)
 - **Dictionary caching:** Workbox `CacheFirst` runtime (`dictionary-v1`), NOT precached (3 MB > 2 MB limit)
 - **Common words:** Google 10k list → `public/common-words.txt` (9,321 words, 72 KB)
+- **OCR preprocessing:** grayscale → 5th/95th percentile contrast stretch → invert; inversion is required because Boggle tiles have white letters on dark purple — Tesseract expects dark-on-light
 - **OCR:** `PSM.SPARSE_TEXT` on full image → bounding-box clustering → auto-detects grid size
 - **State persistence:** gridSize, minLen, maxLen, letters, overlayAlpha, swipeCalibration persisted; solutions reset on reload
 - **swipeCalibration merge:** deep-merged in `boggleStore.merge()` so new fields (e.g. swipeDelayMs) get defaults on old persisted data
