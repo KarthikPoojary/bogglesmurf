@@ -48,8 +48,9 @@ function detectTileRegion(
       const i = (y * imgW + x) * 4
       const r = d[i], g = d[i + 1], b = d[i + 2]
       const sum = r + g + b
-      // Dark purple: not near-black (sum>90), not bright (sum<420), blue dominates
-      if (sum > 90 && sum < 420 && b > r * 1.05 && b > g * 1.15) {
+      // Dark purple: require meaningful absolute blue (>80) so dark room/bezel
+      // (barely-blue dark pixels) don't trigger. Tight ratios filter pink/gray.
+      if (b > 80 && sum > 120 && sum < 420 && b > r * 1.2 && b > g * 1.3) {
         rowHits[y]++
         colHits[x]++
       }
@@ -171,7 +172,7 @@ export async function ocrGrid(
   for (let i = 0; i < pixelData.length; i += 4) {
     const r = pixelData[i], g = pixelData[i + 1], b = pixelData[i + 2]
     const sum = r + g + b
-    if (sum > 90 && sum < 420 && b > r * 1.05 && b > g * 1.15) purpleCount++
+    if (b > 80 && sum > 120 && sum < 420 && b > r * 1.2 && b > g * 1.3) purpleCount++
   }
   onProgress?.(`Purple pixels: ${purpleCount} / ${fullCanvas.width * fullCanvas.height}`)
 
@@ -182,9 +183,25 @@ export async function ocrGrid(
     onProgress?.('No purple region — using full image')
   }
 
-  const ocrCanvas = region
-    ? cropCanvas(fullCanvas, region.x, region.y, region.w, region.h)
-    : fullCanvas
+  let ocrCanvas: HTMLCanvasElement
+  if (region) {
+    const cropped = cropCanvas(fullCanvas, region.x, region.y, region.w, region.h)
+    // Scale crop up to at least 800px wide for better OCR accuracy on small grids
+    const minOcrW = 800
+    if (cropped.width < minOcrW) {
+      const scale = minOcrW / cropped.width
+      const scaled = document.createElement('canvas')
+      scaled.width = Math.round(cropped.width * scale)
+      scaled.height = Math.round(cropped.height * scale)
+      scaled.getContext('2d')!.drawImage(cropped, 0, 0, scaled.width, scaled.height)
+      ocrCanvas = scaled
+      onProgress?.(`Scaled crop: ${ocrCanvas.width}×${ocrCanvas.height}px`)
+    } else {
+      ocrCanvas = cropped
+    }
+  } else {
+    ocrCanvas = fullCanvas
+  }
 
   const ocrCtx = ocrCanvas.getContext('2d')!
 
@@ -214,7 +231,19 @@ export async function ocrGrid(
   })
 
   onProgress?.('Scanning for letters…')
-  const { data } = await worker.recognize(ocrCanvas)
+  let { data } = await worker.recognize(ocrCanvas)
+
+  // If SPARSE_TEXT finds nothing, retry with SINGLE_BLOCK
+  const sparseSymbols = (data.blocks ?? []).reduce(
+    (n, b) => n + b.paragraphs.reduce(
+      (n2, p) => n2 + p.lines.reduce(
+        (n3, l) => n3 + l.words.reduce((n4, w) => n4 + w.symbols.length, 0), 0), 0), 0)
+  if (sparseSymbols === 0) {
+    onProgress?.('SPARSE_TEXT: 0 symbols — retrying with SINGLE_BLOCK…')
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK })
+    ;({ data } = await worker.recognize(ocrCanvas))
+  }
+
   await worker.terminate()
 
   // Count all raw symbols before any filtering
