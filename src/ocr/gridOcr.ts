@@ -1,142 +1,32 @@
+import { Capacitor } from '@capacitor/core'
+
 export type OcrProgressMsg = string
 
 interface LetterPoint {
   char: string
   cx: number
   cy: number
-  confidence: number
   height: number
 }
 
-// ─── image helpers ────────────────────────────────────────────────────────────
+// ─── shared helpers ───────────────────────────────────────────────────────────
 
-function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
-    img.onerror = reject
-    img.src = url
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // strip "data:image/jpeg;base64," prefix
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
   })
 }
 
-function drawToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement {
-  const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
-  const w = Math.round(img.width * scale)
-  const h = Math.round(img.height * scale)
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')!
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, w, h)
-  ctx.drawImage(img, 0, 0, w, h)
-  return canvas
-}
-
-// True for pixels that look like Netflix Boggle tile color (deep purple).
-// Critical: r > g distinguishes PURPLE (blue+red) from pure BLUE (room glow).
-// Pure blue has r ≈ g; purple/violet has r noticeably > g.
-function isTilePurple(r: number, g: number, b: number): boolean {
-  if (b < 80) return false                       // need meaningful blue
-  const sum = r + g + b
-  if (sum < 120 || sum > 400) return false       // not too dark or too bright
-  if (b <= r * 1.2 || b <= g * 1.4) return false // blue must dominate
-  if (r <= g + 8) return false                   // PURPLE not BLUE: r > g by a margin
-  return true
-}
-
-// Detect the bounding box of dark-purple Boggle tiles.
-// Uses percentile-based bounds (5th–95th of purple pixel positions) so a few
-// scattered noise pixels (reflections, glow) can't expand the box to fill the image.
-function detectTileRegion(
-  d: Uint8ClampedArray, imgW: number, imgH: number
-): { x: number; y: number; w: number; h: number } | null {
-  const rowHits = new Uint32Array(imgH)
-  const colHits = new Uint32Array(imgW)
-  let total = 0
-
-  for (let y = 0; y < imgH; y++) {
-    for (let x = 0; x < imgW; x++) {
-      const i = (y * imgW + x) * 4
-      if (isTilePurple(d[i], d[i + 1], d[i + 2])) {
-        rowHits[y]++
-        colHits[x]++
-        total++
-      }
-    }
-  }
-
-  if (total < 500) return null
-
-  // Find x and y bounds containing 5–95% of purple pixels (excludes outliers)
-  const lo = total * 0.05, hi = total * 0.95
-  let cum = 0, x0 = -1, x1 = -1
-  for (let x = 0; x < imgW; x++) {
-    cum += colHits[x]
-    if (x0 < 0 && cum >= lo) x0 = x
-    if (x1 < 0 && cum >= hi) { x1 = x; break }
-  }
-  cum = 0; let y0 = -1, y1 = -1
-  for (let y = 0; y < imgH; y++) {
-    cum += rowHits[y]
-    if (y0 < 0 && cum >= lo) y0 = y
-    if (y1 < 0 && cum >= hi) { y1 = y; break }
-  }
-
-  if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0) return null
-  const gw = x1 - x0, gh = y1 - y0
-  if (gw < imgW * 0.05 || gh < imgH * 0.05) return null
-
-  // Pad by 8%
-  const px = Math.round(gw * 0.08), py = Math.round(gh * 0.08)
-  const rx = Math.max(0, x0 - px), ry = Math.max(0, y0 - py)
-  return {
-    x: rx, y: ry,
-    w: Math.min(imgW - rx, gw + 2 * px),
-    h: Math.min(imgH - ry, gh + 2 * py),
-  }
-}
-
-function cropCanvas(
-  src: HTMLCanvasElement, x: number, y: number, cw: number, ch: number
-): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = cw; c.height = ch
-  c.getContext('2d')!.drawImage(src, x, y, cw, ch, 0, 0, cw, ch)
-  return c
-}
-
-// Percentile contrast stretch then invert.
-// Inversion is required: Boggle tiles have WHITE letters on DARK tiles;
-// Tesseract expects dark text on a light background.
-function preprocessForOcr(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const id = ctx.getImageData(0, 0, w, h)
-  const d = id.data
-  const n = d.length >> 2
-
-  // Pass 1: grayscale
-  const lum = new Uint8Array(n)
-  for (let i = 0; i < n; i++) {
-    lum[i] = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2] + 0.5) | 0
-  }
-
-  // Pass 2: 5th/95th percentile stretch
-  const sorted = lum.slice().sort((a, b) => a - b)
-  const lo = sorted[(n * 0.05) | 0]
-  const hi = sorted[(n * 0.95) | 0]
-  const range = hi - lo || 1
-
-  // Pass 3: stretch then invert
-  for (let i = 0; i < n; i++) {
-    const s = Math.max(0, Math.min(255, (((lum[i] - lo) / range) * 255 + 0.5) | 0))
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255 - s
-  }
-  ctx.putImageData(id, 0, 0)
-}
-
-// ─── 1-D clustering (gap-based) ───────────────────────────────────────────────
-
+// Cluster a list of coordinate values into groups by finding large gaps.
+// Returns the center of each cluster, sorted ascending.
 function clusterCenters(rawValues: number[]): number[] {
   if (rawValues.length === 0) return []
   const sorted = [...new Set(rawValues.map((v) => Math.round(v / 2) * 2))].sort((a, b) => a - b)
@@ -164,77 +54,133 @@ function snap(n: number): 4 | 5 | 6 {
   return 6
 }
 
-// ─── main export ──────────────────────────────────────────────────────────────
+function buildGrid(letters: LetterPoint[]): { grid: string[][]; gridSize: 4 | 5 | 6 } {
+  if (letters.length < 9) {
+    throw new Error(
+      `Only found ${letters.length} letter${letters.length === 1 ? '' : 's'}. ` +
+      'Try a flatter photo with the whole grid filling the frame.'
+    )
+  }
 
-export async function ocrGrid(
-  file: File,
-  onProgress?: (msg: OcrProgressMsg) => void
+  const rowCenters = clusterCenters(letters.map((l) => l.cy))
+  const colCenters = clusterCenters(letters.map((l) => l.cx))
+  const detectedSize = Math.round((rowCenters.length + colCenters.length) / 2)
+  const gridSize = snap(detectedSize)
+
+  const grid: string[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(''))
+  const filled: boolean[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(false))
+
+  // First pass: tallest letter wins each cell
+  letters.sort((a, b) => b.height - a.height)
+  for (const l of letters) {
+    const r = nearestIndex(rowCenters, l.cy)
+    const c = nearestIndex(colCenters, l.cx)
+    if (r < gridSize && c < gridSize && !filled[r][c]) {
+      grid[r][c] = l.char
+      filled[r][c] = true
+    }
+  }
+
+  return { grid, gridSize }
+}
+
+// ─── ML Kit (native Android / iOS) ────────────────────────────────────────────
+
+async function ocrWithMlKit(
+  file: File, onProgress?: (msg: OcrProgressMsg) => void
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  onProgress?.('Reading image…')
+  const base64 = await fileToBase64(file)
+
+  onProgress?.('ML Kit text recognition…')
+  const { CapacitorPluginMlKitTextRecognition } = await import(
+    '@pantrist/capacitor-plugin-ml-kit-text-recognition'
+  )
+  const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
+
+  // Walk blocks → lines → elements; ML Kit "elements" are typically single
+  // words. For Boggle each tile letter is well-separated so each element is
+  // usually a single character.
+  const letters: LetterPoint[] = []
+  for (const block of result.blocks) {
+    for (const line of block.lines) {
+      for (const el of line.elements) {
+        const text = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
+        if (!text) continue
+        const w = el.boundingBox.right - el.boundingBox.left
+        const h = el.boundingBox.bottom - el.boundingBox.top
+
+        if (text.length === 1) {
+          letters.push({
+            char: text,
+            cx: (el.boundingBox.left + el.boundingBox.right) / 2,
+            cy: (el.boundingBox.top + el.boundingBox.bottom) / 2,
+            height: h,
+          })
+        } else {
+          // Multi-character element — split by width
+          const cellW = w / text.length
+          for (let i = 0; i < text.length; i++) {
+            letters.push({
+              char: text[i],
+              cx: el.boundingBox.left + cellW * (i + 0.5),
+              cy: (el.boundingBox.top + el.boundingBox.bottom) / 2,
+              height: h,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  onProgress?.(`ML Kit: ${result.blocks.length} blocks, ${letters.length} letters`)
+
+  // Drop letters smaller than 55% of median height (filters small UI text)
+  if (letters.length > 0) {
+    const heights = letters.map((l) => l.height).sort((a, b) => a - b)
+    const medH = heights[Math.floor(heights.length / 2)]
+    const minH = medH * 0.55
+    const big = letters.filter((l) => l.height >= minH)
+    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${big.length} letters`)
+    return buildGrid(big)
+  }
+
+  return buildGrid(letters)
+}
+
+// ─── Tesseract.js (web PWA fallback) ──────────────────────────────────────────
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
+function drawToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement {
+  const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
+  const w = Math.round(img.width * scale)
+  const h = Math.round(img.height * scale)
+  const canvas = document.createElement('canvas')
+  canvas.width = w; canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(img, 0, 0, w, h)
+  return canvas
+}
+
+async function ocrWithTesseract(
+  file: File, onProgress?: (msg: OcrProgressMsg) => void
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
   const { createWorker, PSM } = await import('tesseract.js')
 
   onProgress?.('Loading OCR engine…')
   const img = await loadImageFromFile(file)
-  onProgress?.(`Image: ${img.width}×${img.height}px`)
-
-  const fullCanvas = drawToCanvas(img)
-  onProgress?.(`Canvas: ${fullCanvas.width}×${fullCanvas.height}px`)
-  const fullCtx = fullCanvas.getContext('2d')!
-
-  // Count purple pixels to see if tile detection will work
-  const pixelData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height).data
-  let purpleCount = 0
-  for (let i = 0; i < pixelData.length; i += 4) {
-    if (isTilePurple(pixelData[i], pixelData[i + 1], pixelData[i + 2])) purpleCount++
-  }
-  onProgress?.(`Purple pixels: ${purpleCount} / ${fullCanvas.width * fullCanvas.height}`)
-
-  const region = detectTileRegion(pixelData, fullCanvas.width, fullCanvas.height)
-  if (region) {
-    onProgress?.(`Grid crop: (${region.x},${region.y}) ${region.w}×${region.h}px`)
-  } else {
-    onProgress?.('No purple region — using full image')
-  }
-
-  let ocrCanvas: HTMLCanvasElement
-  if (region) {
-    const cropped = cropCanvas(fullCanvas, region.x, region.y, region.w, region.h)
-    // Scale crop up to at least 800px wide for better OCR accuracy on small grids
-    const minOcrW = 800
-    if (cropped.width < minOcrW) {
-      const scale = minOcrW / cropped.width
-      const scaled = document.createElement('canvas')
-      scaled.width = Math.round(cropped.width * scale)
-      scaled.height = Math.round(cropped.height * scale)
-      scaled.getContext('2d')!.drawImage(cropped, 0, 0, scaled.width, scaled.height)
-      ocrCanvas = scaled
-      onProgress?.(`Scaled crop: ${ocrCanvas.width}×${ocrCanvas.height}px`)
-    } else {
-      ocrCanvas = cropped
-    }
-  } else {
-    ocrCanvas = fullCanvas
-  }
-
-  const ocrCtx = ocrCanvas.getContext('2d')!
-
-  // Pixel stats before preprocessing
-  const pre = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height).data
-  let preDark = 0
-  for (let i = 0; i < pre.length; i += 4) {
-    if (0.299 * pre[i] + 0.587 * pre[i + 1] + 0.114 * pre[i + 2] < 128) preDark++
-  }
-  const preTotal = ocrCanvas.width * ocrCanvas.height
-  onProgress?.(`Pre-process: ${Math.round(preDark / preTotal * 100)}% dark pixels`)
-
-  preprocessForOcr(ocrCtx, ocrCanvas.width, ocrCanvas.height)
-
-  // Pixel stats after preprocessing
-  const post = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height).data
-  let postDark = 0
-  for (let i = 0; i < post.length; i += 4) {
-    if (0.299 * post[i] + 0.587 * post[i + 1] + 0.114 * post[i + 2] < 128) postDark++
-  }
-  onProgress?.(`Post-process: ${Math.round(postDark / preTotal * 100)}% dark pixels`)
+  const canvas = drawToCanvas(img)
 
   const worker = await createWorker('eng')
   await worker.setParameters({
@@ -243,44 +189,8 @@ export async function ocrGrid(
   })
 
   onProgress?.('Scanning for letters…')
-  let { data } = await worker.recognize(ocrCanvas)
-
-  // If SPARSE_TEXT finds nothing, retry with SINGLE_BLOCK
-  const sparseSymbols = (data.blocks ?? []).reduce(
-    (n, b) => n + b.paragraphs.reduce(
-      (n2, p) => n2 + p.lines.reduce(
-        (n3, l) => n3 + l.words.reduce((n4, w) => n4 + w.symbols.length, 0), 0), 0), 0)
-  if (sparseSymbols === 0) {
-    onProgress?.('SPARSE_TEXT: 0 symbols — retrying with SINGLE_BLOCK…')
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK })
-    ;({ data } = await worker.recognize(ocrCanvas))
-  }
-
+  const { data } = await worker.recognize(canvas)
   await worker.terminate()
-
-  // Count all raw symbols before any filtering
-  let rawSymbols = 0, rawLetters = 0
-  let minConf = 100, maxConf = 0
-  for (const block of data.blocks ?? []) {
-    for (const para of block.paragraphs) {
-      for (const line of para.lines) {
-        for (const word of line.words) {
-          for (const sym of word.symbols) {
-            rawSymbols++
-            const ch = sym.text.trim().toUpperCase()
-            if (/^[A-Z]$/.test(ch)) {
-              rawLetters++
-              if (sym.confidence < minConf) minConf = sym.confidence
-              if (sym.confidence > maxConf) maxConf = sym.confidence
-            }
-          }
-        }
-      }
-    }
-  }
-  onProgress?.(`Tesseract: ${rawSymbols} symbols, ${rawLetters} letters, conf ${rawLetters > 0 ? `${Math.round(minConf)}–${Math.round(maxConf)}` : 'n/a'}`)
-
-  onProgress?.('Detecting grid layout…')
 
   const letters: LetterPoint[] = []
   for (const block of data.blocks ?? []) {
@@ -294,7 +204,6 @@ export async function ocrGrid(
                 char: ch,
                 cx: (sym.bbox.x0 + sym.bbox.x1) / 2,
                 cy: (sym.bbox.y0 + sym.bbox.y1) / 2,
-                confidence: sym.confidence,
                 height: sym.bbox.y1 - sym.bbox.y0,
               })
             }
@@ -303,43 +212,25 @@ export async function ocrGrid(
       }
     }
   }
-  onProgress?.(`After conf>5 filter: ${letters.length} letters`)
 
-  // Filter to large letters only — removes small residual UI text
   if (letters.length > 0) {
     const heights = letters.map((l) => l.height).sort((a, b) => a - b)
     const medH = heights[Math.floor(heights.length / 2)]
     const minH = medH * 0.55
-    letters.splice(0, letters.length, ...letters.filter((l) => l.height >= minH))
-    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${letters.length} letters`)
+    return buildGrid(letters.filter((l) => l.height >= minH))
   }
 
-  if (letters.length < 9) {
-    throw new Error(
-      `Only found ${letters.length} letter${letters.length === 1 ? '' : 's'}. ` +
-      'Try a flatter photo with the whole grid filling the frame.'
-    )
+  return buildGrid(letters)
+}
+
+// ─── main export ──────────────────────────────────────────────────────────────
+
+export async function ocrGrid(
+  file: File,
+  onProgress?: (msg: OcrProgressMsg) => void
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  if (Capacitor.isNativePlatform()) {
+    return ocrWithMlKit(file, onProgress)
   }
-
-  const rowCenters = clusterCenters(letters.map((l) => l.cy))
-  const colCenters = clusterCenters(letters.map((l) => l.cx))
-
-  const detectedSize = Math.round((rowCenters.length + colCenters.length) / 2)
-  const gridSize = snap(detectedSize)
-
-  onProgress?.(`Detected ${gridSize}×${gridSize} grid — mapping ${letters.length} letters…`)
-
-  const grid: string[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(''))
-  const confidence: number[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(-1))
-
-  for (const l of letters) {
-    const r = nearestIndex(rowCenters, l.cy)
-    const c = nearestIndex(colCenters, l.cx)
-    if (r < gridSize && c < gridSize && l.confidence > confidence[r][c]) {
-      grid[r][c] = l.char
-      confidence[r][c] = l.confidence
-    }
-  }
-
-  return { grid, gridSize }
+  return ocrWithTesseract(file, onProgress)
 }

@@ -11,6 +11,9 @@ importers:
       '@capacitor/core':
         specifier: ^6.1.2
         version: 6.2.1
+      '@pantrist/capacitor-plugin-ml-kit-text-recognition':
+        specifier: 6.2.1
+        version: 6.2.1(@capacitor/core@6.2.1)
       react:
         specifier: ^19.2.5
         version: 19.2.5
@@ -775,6 +778,11 @@ packages:
 
   '@oxc-project/types@0.127.0':
     resolution: {integrity: sha512-aIYXQBo4lCbO4z0R3FHeucQHpF46l2LbMdxRvqvuRuW2OxdnSkcng5B8+K12spgLDj93rtN3+J2Vac/TIO+ciQ==}
+
+  '@pantrist/capacitor-plugin-ml-kit-text-recognition@6.2.1':
+    resolution: {integrity: sha512-zOgKhzCvnY33ZQPJ9r9GlyjsPizqC/unkOAqW22EbMIvK9Kjqs7WfknXZOGp6DkihJSLuDKwmnpgY73vwwV98g==}
+    peerDependencies:
+      '@capacitor/core': ^6.0.0
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -3746,6 +3754,10 @@ snapshots:
     optional: true
 
   '@oxc-project/types@0.127.0': {}
+
+  '@pantrist/capacitor-plugin-ml-kit-text-recognition@6.2.1(@capacitor/core@6.2.1)':
+    dependencies:
+      '@capacitor/core': 6.2.1
 
   '@polka/url@1.0.0-next.29': {}
 

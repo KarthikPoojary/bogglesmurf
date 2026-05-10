@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-10 — Replace Tesseract with Google ML Kit on Android
+
+### Changed
+- OCR now uses Google ML Kit Text Recognition on Android (on-device, free, fast). Tesseract.js retained as the web PWA fallback. The elaborate preprocessing pipeline (purple-tile detection, percentile contrast stretch, inversion, crop scaling, PSM fallback) is gone — ML Kit reads the raw photo directly.
+
+### Added
+- `@pantrist/capacitor-plugin-ml-kit-text-recognition` (v6.2.1) Capacitor plugin
+- Platform branch in `gridOcr.ts`: `Capacitor.isNativePlatform()` → ML Kit, otherwise Tesseract
+
 ## [0.7.1] - 2026-05-10 — OCR fix for Netflix Boggle grid photos
 
 ### Fixed

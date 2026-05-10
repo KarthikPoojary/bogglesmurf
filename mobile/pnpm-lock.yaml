@@ -14,6 +14,9 @@ importers:
       '@capacitor/core':
         specifier: ^6.1.2
         version: 6.2.1
+      '@pantrist/capacitor-plugin-ml-kit-text-recognition':
+        specifier: 6.2.1
+        version: 6.2.1(@capacitor/core@6.2.1)
     devDependencies:
       '@capacitor/cli':
         specifier: ^6.1.2
@@ -73,6 +76,11 @@ packages:
   '@ionic/utils-terminal@2.3.5':
     resolution: {integrity: sha512-3cKScz9Jx2/Pr9ijj1OzGlBDfcmx7OMVBt4+P1uRR0SSW4cm1/y3Mo4OY3lfkuaYifMNBW8Wz6lQHbs1bihr7A==}
     engines: {node: '>=16.0.0'}
+
+  '@pantrist/capacitor-plugin-ml-kit-text-recognition@6.2.1':
+    resolution: {integrity: sha512-zOgKhzCvnY33ZQPJ9r9GlyjsPizqC/unkOAqW22EbMIvK9Kjqs7WfknXZOGp6DkihJSLuDKwmnpgY73vwwV98g==}
+    peerDependencies:
+      '@capacitor/core': ^6.0.0
 
   '@types/fs-extra@8.1.5':
     resolution: {integrity: sha512-0dzKcwO+S8s2kuF5Z9oUWatQJj5Uq/iqphEtE3GQJVRRYm/tD1LglU2UnXi2A8jLq5umkGouOXOR9y0n613ZwQ==}
@@ -528,6 +536,10 @@ snapshots:
       wrap-ansi: 7.0.0
     transitivePeerDependencies:
       - supports-color
+
+  '@pantrist/capacitor-plugin-ml-kit-text-recognition@6.2.1(@capacitor/core@6.2.1)':
+    dependencies:
+      '@capacitor/core': 6.2.1
 
   '@types/fs-extra@8.1.5':
     dependencies:

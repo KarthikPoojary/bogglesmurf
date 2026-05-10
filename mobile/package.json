@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
-    "@capacitor/core": "^6.1.2"
+    "@capacitor/core": "^6.1.2",
+    "@pantrist/capacitor-plugin-ml-kit-text-recognition": "6.2.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2"
