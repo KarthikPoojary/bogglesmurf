@@ -120,25 +120,39 @@ async function ocrWithMlKit(
   const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
 
   // ML Kit returns elements in reading order (top-to-bottom, left-to-right).
-  // Walk that order, drop any element that's mostly non-letters (UI noise like
-  // the "0:39" timer), and concatenate the rest. The total letter count tells
-  // us the grid size (16 → 4×4, 25 → 5×5, 36 → 6×6).
+  // Walk that order, drop elements that are mostly non-letters (UI noise like
+  // "0:39" timer), then keep only elements whose height matches the tallest
+  // text in the image — Netflix Boggle tile letters are visibly larger than
+  // any UI text (player banners, "Scan to join!", timer), so this filter
+  // isolates the grid even in wide photos.
   const allTexts: string[] = []
-  let allLetters = ''
+  const candidates: { letters: string; height: number }[] = []
   for (const block of result.blocks) {
     for (const line of block.lines) {
       for (const el of line.elements) {
         allTexts.push(el.text)
         const letters = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
         const ratio = letters.length / Math.max(1, el.text.length)
-        // Drop elements where less than 60% of characters are letters
-        if (ratio < 0.6) continue
-        allLetters += letters
+        if (ratio < 0.6 || letters.length === 0) continue
+        const h = el.boundingBox.bottom - el.boundingBox.top
+        candidates.push({ letters, height: h })
       }
     }
   }
 
   onProgress?.(`Texts: ${allTexts.map((t) => `"${t}"`).join(' ') || '(none)'}`)
+
+  // Filter to elements whose height is within 30% of the tallest — these are
+  // the grid tiles. Smaller UI text is dropped.
+  let allLetters = ''
+  if (candidates.length > 0) {
+    const maxH = Math.max(...candidates.map((c) => c.height))
+    const minH = maxH * 0.7
+    const kept = candidates.filter((c) => c.height >= minH)
+    allLetters = kept.map((c) => c.letters).join('')
+    onProgress?.(`Tile height: ~${Math.round(maxH)}px (filter ≥${Math.round(minH)}px)`)
+    onProgress?.(`Kept ${kept.length}/${candidates.length} elements`)
+  }
   onProgress?.(`Letters: "${allLetters}" (${allLetters.length})`)
 
   // Snap to grid size. Allow some slack (one missed/extra char per row).
