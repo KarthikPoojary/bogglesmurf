@@ -91,7 +91,11 @@ function buildGrid(letters: LetterPoint[]): { grid: string[][]; gridSize: 4 | 5 
 // is sized down. Phone cameras save photos in landscape with a "rotate 90°"
 // EXIF tag — without this step, ML Kit receives a sideways image and can only
 // read a fraction of the letters.
-function imageToBase64Canvas(img: HTMLImageElement, maxSize = 2000): string {
+//
+// Cap at 1200px — ML Kit text recognition is trained for ~720p input; bigger
+// images just slow down the JS-to-native bridge serialization without
+// improving accuracy. Quality 0.85 is plenty for text.
+function imageToBase64Canvas(img: HTMLImageElement, maxSize = 1200): { base64: string; w: number; h: number } {
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
   const w = Math.round(img.width * scale)
   const h = Math.round(img.height * scale)
@@ -101,7 +105,7 @@ function imageToBase64Canvas(img: HTMLImageElement, maxSize = 2000): string {
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, w, h)
   ctx.drawImage(img, 0, 0, w, h)
-  return canvas.toDataURL('image/jpeg', 0.92).split(',')[1]
+  return { base64: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], w, h }
 }
 
 async function ocrWithMlKit(
@@ -111,13 +115,22 @@ async function ocrWithMlKit(
   const img = await loadImageFromFile(file)
   onProgress?.(`Image: ${img.width}×${img.height}px`)
 
-  const base64 = imageToBase64Canvas(img)
+  const { base64, w, h } = imageToBase64Canvas(img)
+  onProgress?.(`Resized: ${w}×${h}px (${Math.round(base64.length / 1024)}KB)`)
 
   onProgress?.('ML Kit scanning…')
   const { CapacitorPluginMlKitTextRecognition } = await import(
     '@pantrist/capacitor-plugin-ml-kit-text-recognition'
   )
-  const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
+  // Race the native call against a 30s timeout so a hung plugin can't freeze
+  // the UI forever.
+  const TIMEOUT_MS = 30_000
+  const result = await Promise.race([
+    CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`ML Kit timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
+    ),
+  ])
 
   // ML Kit returns elements in reading order (top-to-bottom, left-to-right).
   // Walk that order, drop elements that are mostly non-letters (UI noise like
