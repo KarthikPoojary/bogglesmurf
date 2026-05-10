@@ -119,64 +119,51 @@ async function ocrWithMlKit(
   )
   const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
 
-  // Walk blocks → lines → elements
-  const letters: LetterPoint[] = []
+  // ML Kit returns elements in reading order (top-to-bottom, left-to-right).
+  // Walk that order, drop any element that's mostly non-letters (UI noise like
+  // the "0:39" timer), and concatenate the rest. The total letter count tells
+  // us the grid size (16 → 4×4, 25 → 5×5, 36 → 6×6).
   const allTexts: string[] = []
-  let elementCount = 0
+  let allLetters = ''
   for (const block of result.blocks) {
     for (const line of block.lines) {
       for (const el of line.elements) {
-        elementCount++
         allTexts.push(el.text)
-        const text = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
-        if (!text) continue
-        const w = el.boundingBox.right - el.boundingBox.left
-        const h = el.boundingBox.bottom - el.boundingBox.top
-
-        if (text.length === 1) {
-          letters.push({
-            char: text,
-            cx: (el.boundingBox.left + el.boundingBox.right) / 2,
-            cy: (el.boundingBox.top + el.boundingBox.bottom) / 2,
-            height: h,
-          })
-        } else {
-          // Multi-character element — split positions evenly across the bbox
-          const cellW = w / text.length
-          for (let i = 0; i < text.length; i++) {
-            letters.push({
-              char: text[i],
-              cx: el.boundingBox.left + cellW * (i + 0.5),
-              cy: (el.boundingBox.top + el.boundingBox.bottom) / 2,
-              height: h,
-            })
-          }
-        }
+        const letters = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
+        const ratio = letters.length / Math.max(1, el.text.length)
+        // Drop elements where less than 60% of characters are letters
+        if (ratio < 0.6) continue
+        allLetters += letters
       }
     }
   }
 
-  onProgress?.(`ML Kit: ${result.blocks.length} blocks, ${elementCount} elements`)
-  // Emit all element texts so we can see exactly what ML Kit found
   onProgress?.(`Texts: ${allTexts.map((t) => `"${t}"`).join(' ') || '(none)'}`)
-  onProgress?.(`Letters extracted: ${letters.length}`)
+  onProgress?.(`Letters: "${allLetters}" (${allLetters.length})`)
 
-  // Drop letters shorter than 60% of median height — this filters out the
-  // Boggle timer pill ("0:39") and any other small UI text. Grid tile letters
-  // are always the tallest characters in the photo.
-  let finalLetters = letters
-  if (letters.length > 4) {
-    const heights = letters.map((l) => l.height).sort((a, b) => a - b)
-    const medH = heights[Math.floor(heights.length / 2)]
-    const minH = medH * 0.6
-    finalLetters = letters.filter((l) => l.height >= minH)
-    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${finalLetters.length} letters`)
+  // Snap to grid size. Allow some slack (one missed/extra char per row).
+  const n = allLetters.length
+  let gridSize: 4 | 5 | 6
+  if (n >= 14 && n <= 18) gridSize = 4
+  else if (n >= 22 && n <= 28) gridSize = 5
+  else if (n >= 32 && n <= 39) gridSize = 6
+  else throw new Error(
+    `Found ${n} letters — need 16, 25, or 36 for a 4×4, 5×5, or 6×6 grid.`
+  )
+
+  // Truncate or pad to exact size
+  const expected = gridSize * gridSize
+  if (allLetters.length > expected) allLetters = allLetters.slice(0, expected)
+  while (allLetters.length < expected) allLetters += ''
+
+  const grid: string[][] = []
+  for (let r = 0; r < gridSize; r++) {
+    const row = allLetters.slice(r * gridSize, (r + 1) * gridSize).padEnd(gridSize, '\0')
+    grid.push(row.split('').map((c) => (c === '\0' ? '' : c)))
   }
 
-  const result2 = buildGrid(finalLetters)
-  // Emit assembled grid so we can verify placement
-  onProgress?.(`Grid: ${result2.grid.map((r) => r.map((c) => c || '·').join('')).join(' / ')}`)
-  return result2
+  onProgress?.(`Grid: ${grid.map((r) => r.map((c) => c || '·').join('')).join(' / ')}`)
+  return { grid, gridSize }
 }
 
 // ─── Tesseract.js (web PWA fallback) ──────────────────────────────────────────
