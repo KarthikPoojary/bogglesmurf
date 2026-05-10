@@ -16,6 +16,7 @@ export function OcrCapture({ onClose }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [progressMsg, setProgressMsg] = useState('')
+  const [diagLog, setDiagLog] = useState<string[]>([])
   const [resultSummary, setResultSummary] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -34,9 +35,15 @@ export function OcrCapture({ onClose }: Props) {
     if (!file) return
     setStage('processing')
     setProgressMsg('Starting…')
+    setDiagLog([])
+    const log: string[] = []
     try {
       const { ocrGrid } = await import('../ocr/gridOcr')
-      const { grid, gridSize } = await ocrGrid(file, setProgressMsg)
+      const { grid, gridSize } = await ocrGrid(file, (msg) => {
+        setProgressMsg(msg)
+        log.push(msg)
+        setDiagLog([...log])
+      })
 
       setGridSize(gridSize)
       for (let r = 0; r < gridSize; r++) {
@@ -49,10 +56,10 @@ export function OcrCapture({ onClose }: Props) {
       const total = gridSize * gridSize
       setResultSummary(`${gridSize}×${gridSize} grid detected · ${filled}/${total} letters read`)
       setStage('done')
-      // Auto-close after a moment so user can correct any misreads
       setTimeout(onClose, 1800)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'OCR failed — try a clearer photo')
+      setDiagLog([...log])
       setStage('error')
     }
   }
@@ -62,6 +69,7 @@ export function OcrCapture({ onClose }: Props) {
     setImageUrl(null)
     setFile(null)
     setProgressMsg('')
+    setDiagLog([])
     setStage('pick')
   }
 
@@ -131,11 +139,17 @@ export function OcrCapture({ onClose }: Props) {
           {/* PROCESSING */}
           {stage === 'processing' && (
             <div className="flex flex-col items-center gap-5 py-6">
-              {/* Animated spinner */}
               <div className="w-12 h-12 rounded-full border-4 border-slate-700 border-t-emerald-500 animate-spin" />
-              <div className="text-center">
+              <div className="text-center w-full">
                 <p className="text-sm text-slate-200 font-medium">{progressMsg}</p>
                 <p className="text-[11px] text-slate-600 mt-1">First run downloads ~3 MB engine · cached after that</p>
+                {diagLog.length > 1 && (
+                  <div className="mt-3 text-left bg-slate-800 rounded-lg p-2 max-h-32 overflow-y-auto">
+                    {diagLog.map((l, i) => (
+                      <p key={i} className="text-[10px] text-slate-500 font-mono leading-relaxed">{l}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -155,6 +169,17 @@ export function OcrCapture({ onClose }: Props) {
               <div className="bg-red-950/40 border border-red-800 rounded-xl p-4">
                 <p className="text-red-300 text-sm">{errorMsg}</p>
               </div>
+
+              {/* Diagnostic log — helps debug what went wrong */}
+              {diagLog.length > 0 && (
+                <div className="bg-slate-800 rounded-xl p-3 max-h-40 overflow-y-auto">
+                  <p className="text-[10px] text-slate-500 font-semibold mb-1 uppercase tracking-wide">Diagnostic log</p>
+                  {diagLog.map((l, i) => (
+                    <p key={i} className="text-[10px] text-slate-400 font-mono leading-relaxed">{l}</p>
+                  ))}
+                </div>
+              )}
+
               <div className="text-xs text-slate-500 space-y-1">
                 <p>Tips for better results:</p>
                 <ul className="list-disc list-inside space-y-0.5 text-slate-600">

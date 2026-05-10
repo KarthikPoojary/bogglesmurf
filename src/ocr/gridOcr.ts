@@ -159,24 +159,53 @@ export async function ocrGrid(
 
   onProgress?.('Loading OCR engine…')
   const img = await loadImageFromFile(file)
+  onProgress?.(`Image: ${img.width}×${img.height}px`)
 
-  // Draw at full resolution first (no preprocessing yet — we need color for detection)
   const fullCanvas = drawToCanvas(img)
+  onProgress?.(`Canvas: ${fullCanvas.width}×${fullCanvas.height}px`)
   const fullCtx = fullCanvas.getContext('2d')!
 
-  onProgress?.('Detecting grid region…')
-
-  // Crop to just the tile region before preprocessing.
-  // This eliminates room background, TV bezel, UI chrome (timer, player banners)
-  // and gives the contrast-stretch a much better pixel distribution to work with.
+  // Count purple pixels to see if tile detection will work
   const pixelData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height).data
+  let purpleCount = 0
+  for (let i = 0; i < pixelData.length; i += 4) {
+    const r = pixelData[i], g = pixelData[i + 1], b = pixelData[i + 2]
+    const sum = r + g + b
+    if (sum > 90 && sum < 420 && b > r * 1.05 && b > g * 1.15) purpleCount++
+  }
+  onProgress?.(`Purple pixels: ${purpleCount} / ${fullCanvas.width * fullCanvas.height}`)
+
   const region = detectTileRegion(pixelData, fullCanvas.width, fullCanvas.height)
+  if (region) {
+    onProgress?.(`Grid crop: (${region.x},${region.y}) ${region.w}×${region.h}px`)
+  } else {
+    onProgress?.('No purple region — using full image')
+  }
 
   const ocrCanvas = region
     ? cropCanvas(fullCanvas, region.x, region.y, region.w, region.h)
     : fullCanvas
 
-  preprocessForOcr(ocrCanvas.getContext('2d')!, ocrCanvas.width, ocrCanvas.height)
+  const ocrCtx = ocrCanvas.getContext('2d')!
+
+  // Pixel stats before preprocessing
+  const pre = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height).data
+  let preDark = 0
+  for (let i = 0; i < pre.length; i += 4) {
+    if (0.299 * pre[i] + 0.587 * pre[i + 1] + 0.114 * pre[i + 2] < 128) preDark++
+  }
+  const preTotal = ocrCanvas.width * ocrCanvas.height
+  onProgress?.(`Pre-process: ${Math.round(preDark / preTotal * 100)}% dark pixels`)
+
+  preprocessForOcr(ocrCtx, ocrCanvas.width, ocrCanvas.height)
+
+  // Pixel stats after preprocessing
+  const post = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height).data
+  let postDark = 0
+  for (let i = 0; i < post.length; i += 4) {
+    if (0.299 * post[i] + 0.587 * post[i + 1] + 0.114 * post[i + 2] < 128) postDark++
+  }
+  onProgress?.(`Post-process: ${Math.round(postDark / preTotal * 100)}% dark pixels`)
 
   const worker = await createWorker('eng')
   await worker.setParameters({
@@ -187,6 +216,28 @@ export async function ocrGrid(
   onProgress?.('Scanning for letters…')
   const { data } = await worker.recognize(ocrCanvas)
   await worker.terminate()
+
+  // Count all raw symbols before any filtering
+  let rawSymbols = 0, rawLetters = 0
+  let minConf = 100, maxConf = 0
+  for (const block of data.blocks ?? []) {
+    for (const para of block.paragraphs) {
+      for (const line of para.lines) {
+        for (const word of line.words) {
+          for (const sym of word.symbols) {
+            rawSymbols++
+            const ch = sym.text.trim().toUpperCase()
+            if (/^[A-Z]$/.test(ch)) {
+              rawLetters++
+              if (sym.confidence < minConf) minConf = sym.confidence
+              if (sym.confidence > maxConf) maxConf = sym.confidence
+            }
+          }
+        }
+      }
+    }
+  }
+  onProgress?.(`Tesseract: ${rawSymbols} symbols, ${rawLetters} letters, conf ${rawLetters > 0 ? `${Math.round(minConf)}–${Math.round(maxConf)}` : 'n/a'}`)
 
   onProgress?.('Detecting grid layout…')
 
@@ -211,15 +262,15 @@ export async function ocrGrid(
       }
     }
   }
+  onProgress?.(`After conf>5 filter: ${letters.length} letters`)
 
   // Filter to large letters only — removes small residual UI text
-  // (player name banners, timer) that may survive the crop.
-  // Grid tile letters are always the tallest characters in the image.
   if (letters.length > 0) {
     const heights = letters.map((l) => l.height).sort((a, b) => a - b)
     const medH = heights[Math.floor(heights.length / 2)]
     const minH = medH * 0.55
     letters.splice(0, letters.length, ...letters.filter((l) => l.height >= minH))
+    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${letters.length} letters`)
   }
 
   if (letters.length < 9) {
