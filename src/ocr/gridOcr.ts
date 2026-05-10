@@ -106,13 +106,13 @@ async function ocrWithMlKit(
 
   // Walk blocks → lines → elements
   const letters: LetterPoint[] = []
+  const allTexts: string[] = []
   let elementCount = 0
-  const sampleTexts: string[] = []
   for (const block of result.blocks) {
     for (const line of block.lines) {
       for (const el of line.elements) {
         elementCount++
-        if (sampleTexts.length < 8) sampleTexts.push(el.text)
+        allTexts.push(el.text)
         const text = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
         if (!text) continue
         const w = el.boundingBox.right - el.boundingBox.left
@@ -142,18 +142,9 @@ async function ocrWithMlKit(
   }
 
   onProgress?.(`ML Kit: ${result.blocks.length} blocks, ${elementCount} elements`)
-  onProgress?.(`Sample: ${sampleTexts.join(' | ') || '(none)'}`)
+  // Emit all element texts so we can see exactly what ML Kit found
+  onProgress?.(`Texts: ${allTexts.map((t) => `"${t}"`).join(' ') || '(none)'}`)
   onProgress?.(`Letters extracted: ${letters.length}`)
-
-  // Drop letters smaller than 55% of median height (filters small UI text)
-  if (letters.length > 2) {
-    const heights = letters.map((l) => l.height).sort((a, b) => a - b)
-    const medH = heights[Math.floor(heights.length / 2)]
-    const minH = medH * 0.55
-    const big = letters.filter((l) => l.height >= minH)
-    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${big.length} letters`)
-    return buildGrid(big)
-  }
 
   return buildGrid(letters)
 }

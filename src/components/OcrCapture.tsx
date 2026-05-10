@@ -56,7 +56,9 @@ export function OcrCapture({ onClose }: Props) {
       const total = gridSize * gridSize
       setResultSummary(`${gridSize}×${gridSize} grid detected · ${filled}/${total} letters read`)
       setStage('done')
-      setTimeout(onClose, 1800)
+      // Auto-close only when the grid is fully populated; otherwise let the user
+      // inspect the log and decide
+      if (filled === total) setTimeout(onClose, 1800)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'OCR failed — try a clearer photo')
       setDiagLog([...log])
@@ -159,7 +161,23 @@ export function OcrCapture({ onClose }: Props) {
             <div className="flex flex-col items-center gap-3 py-5">
               <div className="text-5xl">✅</div>
               <p className="text-slate-200 font-semibold text-center">{resultSummary}</p>
-              <p className="text-xs text-slate-500">Check any empty cells and correct misreads, then hit Solve</p>
+              <p className="text-xs text-slate-500 text-center">Check any empty cells and correct misreads, then hit Solve</p>
+
+              {diagLog.length > 0 && (
+                <div className="w-full bg-slate-800 rounded-xl p-3 max-h-40 overflow-y-auto">
+                  <p className="text-[10px] text-slate-500 font-semibold mb-1 uppercase tracking-wide">Diagnostic log</p>
+                  {diagLog.map((l, i) => (
+                    <p key={i} className="text-[10px] text-slate-400 font-mono leading-relaxed break-all">{l}</p>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={onClose}
+                className="mt-1 px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-500"
+              >
+                Done
+              </button>
             </div>
           )}
 
