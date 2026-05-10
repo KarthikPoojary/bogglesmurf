@@ -153,6 +153,12 @@ export function OcrCapture({ onClose }: Props) {
                   </div>
                 )}
               </div>
+              <button
+                onClick={reset}
+                className="px-5 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium text-sm transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           )}
 

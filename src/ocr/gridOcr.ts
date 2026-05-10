@@ -95,7 +95,7 @@ function buildGrid(letters: LetterPoint[]): { grid: string[][]; gridSize: 4 | 5 
 // Cap at 1200px — ML Kit text recognition is trained for ~720p input; bigger
 // images just slow down the JS-to-native bridge serialization without
 // improving accuracy. Quality 0.85 is plenty for text.
-function imageToBase64Canvas(img: HTMLImageElement, maxSize = 1200): { base64: string; w: number; h: number } {
+function imageToBase64Canvas(img: HTMLImageElement, maxSize = 1000): { base64: string; w: number; h: number } {
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
   const w = Math.round(img.width * scale)
   const h = Math.round(img.height * scale)
