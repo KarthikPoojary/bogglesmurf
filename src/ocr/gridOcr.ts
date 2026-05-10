@@ -11,14 +11,29 @@ interface LetterPoint {
 
 // ─── shared helpers ───────────────────────────────────────────────────────────
 
-// Cluster a list of coordinate values into groups by finding large gaps.
-// Returns the center of each cluster, sorted ascending.
+// Cluster a list of coordinate values into groups.
+// Handles two distinct input shapes:
+//   (a) Regular grid (ML Kit case): a few well-separated values with all gaps
+//       roughly equal. Each unique value IS a cluster.
+//   (b) Noisy data (Tesseract case): many values with bimodal gap distribution
+//       (small gaps within a row, large gaps between rows). Use gap threshold
+//       to separate clusters.
 function clusterCenters(rawValues: number[]): number[] {
   if (rawValues.length === 0) return []
   const sorted = [...new Set(rawValues.map((v) => Math.round(v / 2) * 2))].sort((a, b) => a - b)
+  if (sorted.length <= 1) return sorted
+
   const gaps = sorted.slice(1).map((v, i) => v - sorted[i])
-  if (gaps.length === 0) return [sorted[0]]
-  const medGap = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)]
+
+  // Regular grid detection: all gaps within ±30% of the mean → each unique
+  // value is its own cluster.
+  const meanGap = gaps.reduce((a, b) => a + b, 0) / gaps.length
+  const allSimilar = sorted.length <= 8 && gaps.every((g) => Math.abs(g - meanGap) <= meanGap * 0.3)
+  if (allSimilar) return sorted
+
+  // Bimodal fallback: gaps > 2× median are cluster separators.
+  const sortedGaps = [...gaps].sort((a, b) => a - b)
+  const medGap = sortedGaps[Math.floor(sortedGaps.length / 2)]
   const threshold = Math.max(medGap * 2, 5)
   const clusters: number[][] = [[sorted[0]]]
   for (let i = 0; i < gaps.length; i++) {
