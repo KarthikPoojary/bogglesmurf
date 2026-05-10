@@ -122,9 +122,9 @@ async function ocrWithMlKit(
   const { CapacitorPluginMlKitTextRecognition } = await import(
     '@pantrist/capacitor-plugin-ml-kit-text-recognition'
   )
-  // Race the native call against a 30s timeout so a hung plugin can't freeze
+  // Race the native call against a 15s timeout so a hung plugin can't freeze
   // the UI forever.
-  const TIMEOUT_MS = 30_000
+  const TIMEOUT_MS = 15_000
   const result = await Promise.race([
     CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 }),
     new Promise<never>((_, reject) =>
@@ -199,8 +199,10 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const img = new Image()
-    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
-    img.onerror = reject
+    const cleanup = () => URL.revokeObjectURL(url)
+    const timer = setTimeout(() => { cleanup(); reject(new Error('Image load timed out (10s)')) }, 10_000)
+    img.onload = () => { clearTimeout(timer); cleanup(); resolve(img) }
+    img.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error('Image failed to load')) }
     img.src = url
   })
 }
