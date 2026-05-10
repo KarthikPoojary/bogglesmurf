@@ -132,56 +132,77 @@ async function ocrWithMlKit(
     ),
   ])
 
-  // ML Kit returns elements in reading order (top-to-bottom, left-to-right).
-  // Walk that order, drop elements that are mostly non-letters (UI noise like
-  // "0:39" timer), then keep only elements whose height matches the tallest
-  // text in the image — Netflix Boggle tile letters are visibly larger than
-  // any UI text (player banners, "Scan to join!", timer), so this filter
-  // isolates the grid even in wide photos.
+  // ML Kit groups spatially-close text into "blocks". For a Boggle photo:
+  // the grid forms one block; player banners, timer, and QR text form others.
+  // Strategy: extract letters from each block separately, then pick the block
+  // whose letter count is closest to a perfect square (16/25/36). This works
+  // regardless of how zoomed-out the photo is.
   const allTexts: string[] = []
-  const candidates: { letters: string; height: number }[] = []
+  const blockLetters: string[] = []
   for (const block of result.blocks) {
+    let bl = ''
     for (const line of block.lines) {
       for (const el of line.elements) {
         allTexts.push(el.text)
         const letters = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
         const ratio = letters.length / Math.max(1, el.text.length)
         if (ratio < 0.6 || letters.length === 0) continue
-        const h = el.boundingBox.bottom - el.boundingBox.top
-        candidates.push({ letters, height: h })
+        bl += letters
       }
     }
+    if (bl) blockLetters.push(bl)
   }
 
   onProgress?.(`Texts: ${allTexts.map((t) => `"${t}"`).join(' ') || '(none)'}`)
+  onProgress?.(`Blocks: ${blockLetters.map((b) => `"${b}"(${b.length})`).join(' ')}`)
 
-  // Filter to elements whose height is within 30% of the tallest — these are
-  // the grid tiles. Smaller UI text is dropped.
-  let allLetters = ''
-  if (candidates.length > 0) {
-    const maxH = Math.max(...candidates.map((c) => c.height))
-    const minH = maxH * 0.7
-    const kept = candidates.filter((c) => c.height >= minH)
-    allLetters = kept.map((c) => c.letters).join('')
-    onProgress?.(`Tile height: ~${Math.round(maxH)}px (filter ≥${Math.round(minH)}px)`)
-    onProgress?.(`Kept ${kept.length}/${candidates.length} elements`)
+  // Score each block by distance to nearest perfect-square grid size
+  function scoreBlock(b: string): { gridSize: 4 | 5 | 6; distance: number } | null {
+    const n = b.length
+    const targets: [number, 4 | 5 | 6][] = [[16, 4], [25, 5], [36, 6]]
+    let best: { gridSize: 4 | 5 | 6; distance: number } | null = null
+    for (const [target, gs] of targets) {
+      const dist = Math.abs(n - target)
+      // Allow ±2 chars slack from a perfect square
+      if (dist <= 2 && (!best || dist < best.distance)) {
+        best = { gridSize: gs, distance: dist }
+      }
+    }
+    return best
   }
-  onProgress?.(`Letters: "${allLetters}" (${allLetters.length})`)
 
-  // Snap to grid size. Allow some slack (one missed/extra char per row).
-  const n = allLetters.length
+  let allLetters: string
   let gridSize: 4 | 5 | 6
-  if (n >= 14 && n <= 18) gridSize = 4
-  else if (n >= 22 && n <= 28) gridSize = 5
-  else if (n >= 32 && n <= 39) gridSize = 6
-  else throw new Error(
-    `Found ${n} letters — need 16, 25, or 36 for a 4×4, 5×5, or 6×6 grid.`
-  )
+  let bestBlock: string | null = null
+  let bestScore: { gridSize: 4 | 5 | 6; distance: number } | null = null
+  for (const b of blockLetters) {
+    const s = scoreBlock(b)
+    if (s && (!bestScore || s.distance < bestScore.distance)) {
+      bestScore = s
+      bestBlock = b
+    }
+  }
 
-  // Truncate or pad to exact size
+  if (bestBlock && bestScore) {
+    allLetters = bestBlock
+    gridSize = bestScore.gridSize
+    onProgress?.(`Selected block: "${bestBlock}" → ${gridSize}×${gridSize}`)
+  } else {
+    // Fallback: concatenate everything and try to snap
+    allLetters = blockLetters.join('')
+    onProgress?.(`No clean block — concat all: "${allLetters}"`)
+    const n = allLetters.length
+    if (n >= 14 && n <= 18) gridSize = 4
+    else if (n >= 22 && n <= 28) gridSize = 5
+    else if (n >= 32 && n <= 39) gridSize = 6
+    else throw new Error(
+      `Found ${n} letters across ${blockLetters.length} blocks — need 16/25/36 for a grid.`,
+    )
+  }
+
+  // Truncate or pad to exact grid size
   const expected = gridSize * gridSize
   if (allLetters.length > expected) allLetters = allLetters.slice(0, expected)
-  while (allLetters.length < expected) allLetters += ''
 
   const grid: string[][] = []
   for (let r = 0; r < gridSize; r++) {
