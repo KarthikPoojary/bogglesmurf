@@ -34,49 +34,63 @@ function drawToCanvas(img: HTMLImageElement, maxSize = 2000): HTMLCanvasElement 
   return canvas
 }
 
-// Detect the bounding box of dark-purple Boggle tiles using a 1-D projection:
-// count purple-ish pixels per row and per column, find the span where they're dense.
-// Returns pixel bounds, or null if not enough purple pixels found.
+// True for pixels that look like Netflix Boggle tile color (deep purple).
+// Critical: r > g distinguishes PURPLE (blue+red) from pure BLUE (room glow).
+// Pure blue has r ≈ g; purple/violet has r noticeably > g.
+function isTilePurple(r: number, g: number, b: number): boolean {
+  if (b < 80) return false                       // need meaningful blue
+  const sum = r + g + b
+  if (sum < 120 || sum > 400) return false       // not too dark or too bright
+  if (b <= r * 1.2 || b <= g * 1.4) return false // blue must dominate
+  if (r <= g + 8) return false                   // PURPLE not BLUE: r > g by a margin
+  return true
+}
+
+// Detect the bounding box of dark-purple Boggle tiles.
+// Uses percentile-based bounds (5th–95th of purple pixel positions) so a few
+// scattered noise pixels (reflections, glow) can't expand the box to fill the image.
 function detectTileRegion(
   d: Uint8ClampedArray, imgW: number, imgH: number
 ): { x: number; y: number; w: number; h: number } | null {
   const rowHits = new Uint32Array(imgH)
   const colHits = new Uint32Array(imgW)
+  let total = 0
 
   for (let y = 0; y < imgH; y++) {
     for (let x = 0; x < imgW; x++) {
       const i = (y * imgW + x) * 4
-      const r = d[i], g = d[i + 1], b = d[i + 2]
-      const sum = r + g + b
-      // Dark purple: require meaningful absolute blue (>80) so dark room/bezel
-      // (barely-blue dark pixels) don't trigger. Tight ratios filter pink/gray.
-      if (b > 80 && sum > 120 && sum < 420 && b > r * 1.2 && b > g * 1.3) {
+      if (isTilePurple(d[i], d[i + 1], d[i + 2])) {
         rowHits[y]++
         colHits[x]++
+        total++
       }
     }
   }
 
-  // A row/col counts as "tile-containing" when enough purple pixels are present
-  const rowThresh = imgW * 0.025
-  const colThresh = imgH * 0.025
+  if (total < 500) return null
 
-  let y0 = -1, y1 = -1, x0 = -1, x1 = -1
-  for (let y = 0; y < imgH; y++) {
-    if (rowHits[y] > rowThresh) { if (y0 < 0) y0 = y; y1 = y }
-  }
+  // Find x and y bounds containing 5–95% of purple pixels (excludes outliers)
+  const lo = total * 0.05, hi = total * 0.95
+  let cum = 0, x0 = -1, x1 = -1
   for (let x = 0; x < imgW; x++) {
-    if (colHits[x] > colThresh) { if (x0 < 0) x0 = x; x1 = x }
+    cum += colHits[x]
+    if (x0 < 0 && cum >= lo) x0 = x
+    if (x1 < 0 && cum >= hi) { x1 = x; break }
+  }
+  cum = 0; let y0 = -1, y1 = -1
+  for (let y = 0; y < imgH; y++) {
+    cum += rowHits[y]
+    if (y0 < 0 && cum >= lo) y0 = y
+    if (y1 < 0 && cum >= hi) { y1 = y; break }
   }
 
-  if (x0 < 0 || y0 < 0) return null
+  if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0) return null
   const gw = x1 - x0, gh = y1 - y0
   if (gw < imgW * 0.05 || gh < imgH * 0.05) return null
 
-  // Pad by 8% so we don't clip tile edges
+  // Pad by 8%
   const px = Math.round(gw * 0.08), py = Math.round(gh * 0.08)
-  const rx = Math.max(0, x0 - px)
-  const ry = Math.max(0, y0 - py)
+  const rx = Math.max(0, x0 - px), ry = Math.max(0, y0 - py)
   return {
     x: rx, y: ry,
     w: Math.min(imgW - rx, gw + 2 * px),
@@ -170,9 +184,7 @@ export async function ocrGrid(
   const pixelData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height).data
   let purpleCount = 0
   for (let i = 0; i < pixelData.length; i += 4) {
-    const r = pixelData[i], g = pixelData[i + 1], b = pixelData[i + 2]
-    const sum = r + g + b
-    if (b > 80 && sum > 120 && sum < 420 && b > r * 1.2 && b > g * 1.3) purpleCount++
+    if (isTilePurple(pixelData[i], pixelData[i + 1], pixelData[i + 2])) purpleCount++
   }
   onProgress?.(`Purple pixels: ${purpleCount} / ${fullCanvas.width * fullCanvas.height}`)
 
