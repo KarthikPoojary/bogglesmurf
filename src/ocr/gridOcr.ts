@@ -11,20 +11,6 @@ interface LetterPoint {
 
 // ─── shared helpers ───────────────────────────────────────────────────────────
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      // strip "data:image/jpeg;base64," prefix
-      const comma = result.indexOf(',')
-      resolve(comma >= 0 ? result.slice(comma + 1) : result)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
 // Cluster a list of coordinate values into groups by finding large gaps.
 // Returns the center of each cluster, sorted ascending.
 function clusterCenters(rawValues: number[]): number[] {
@@ -86,25 +72,47 @@ function buildGrid(letters: LetterPoint[]): { grid: string[][]; gridSize: 4 | 5 
 
 // ─── ML Kit (native Android / iOS) ────────────────────────────────────────────
 
+// Render an image through a canvas so EXIF rotation is applied and the image
+// is sized down. Phone cameras save photos in landscape with a "rotate 90°"
+// EXIF tag — without this step, ML Kit receives a sideways image and can only
+// read a fraction of the letters.
+function imageToBase64Canvas(img: HTMLImageElement, maxSize = 2000): string {
+  const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
+  const w = Math.round(img.width * scale)
+  const h = Math.round(img.height * scale)
+  const canvas = document.createElement('canvas')
+  canvas.width = w; canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(img, 0, 0, w, h)
+  return canvas.toDataURL('image/jpeg', 0.92).split(',')[1]
+}
+
 async function ocrWithMlKit(
   file: File, onProgress?: (msg: OcrProgressMsg) => void
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
   onProgress?.('Reading image…')
-  const base64 = await fileToBase64(file)
+  const img = await loadImageFromFile(file)
+  onProgress?.(`Image: ${img.width}×${img.height}px`)
 
-  onProgress?.('ML Kit text recognition…')
+  const base64 = imageToBase64Canvas(img)
+
+  onProgress?.('ML Kit scanning…')
   const { CapacitorPluginMlKitTextRecognition } = await import(
     '@pantrist/capacitor-plugin-ml-kit-text-recognition'
   )
   const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
 
-  // Walk blocks → lines → elements; ML Kit "elements" are typically single
-  // words. For Boggle each tile letter is well-separated so each element is
-  // usually a single character.
+  // Walk blocks → lines → elements
   const letters: LetterPoint[] = []
+  let elementCount = 0
+  const sampleTexts: string[] = []
   for (const block of result.blocks) {
     for (const line of block.lines) {
       for (const el of line.elements) {
+        elementCount++
+        if (sampleTexts.length < 8) sampleTexts.push(el.text)
         const text = el.text.replace(/[^A-Za-z]/g, '').toUpperCase()
         if (!text) continue
         const w = el.boundingBox.right - el.boundingBox.left
@@ -118,7 +126,7 @@ async function ocrWithMlKit(
             height: h,
           })
         } else {
-          // Multi-character element — split by width
+          // Multi-character element — split positions evenly across the bbox
           const cellW = w / text.length
           for (let i = 0; i < text.length; i++) {
             letters.push({
@@ -133,10 +141,12 @@ async function ocrWithMlKit(
     }
   }
 
-  onProgress?.(`ML Kit: ${result.blocks.length} blocks, ${letters.length} letters`)
+  onProgress?.(`ML Kit: ${result.blocks.length} blocks, ${elementCount} elements`)
+  onProgress?.(`Sample: ${sampleTexts.join(' | ') || '(none)'}`)
+  onProgress?.(`Letters extracted: ${letters.length}`)
 
   // Drop letters smaller than 55% of median height (filters small UI text)
-  if (letters.length > 0) {
+  if (letters.length > 2) {
     const heights = letters.map((l) => l.height).sort((a, b) => a - b)
     const medH = heights[Math.floor(heights.length / 2)]
     const minH = medH * 0.55
