@@ -146,7 +146,22 @@ async function ocrWithMlKit(
   onProgress?.(`Texts: ${allTexts.map((t) => `"${t}"`).join(' ') || '(none)'}`)
   onProgress?.(`Letters extracted: ${letters.length}`)
 
-  return buildGrid(letters)
+  // Drop letters shorter than 60% of median height — this filters out the
+  // Boggle timer pill ("0:39") and any other small UI text. Grid tile letters
+  // are always the tallest characters in the photo.
+  let finalLetters = letters
+  if (letters.length > 4) {
+    const heights = letters.map((l) => l.height).sort((a, b) => a - b)
+    const medH = heights[Math.floor(heights.length / 2)]
+    const minH = medH * 0.6
+    finalLetters = letters.filter((l) => l.height >= minH)
+    onProgress?.(`After size filter (≥${Math.round(minH)}px): ${finalLetters.length} letters`)
+  }
+
+  const result2 = buildGrid(finalLetters)
+  // Emit assembled grid so we can verify placement
+  onProgress?.(`Grid: ${result2.grid.map((r) => r.map((c) => c || '·').join('')).join(' / ')}`)
+  return result2
 }
 
 // ─── Tesseract.js (web PWA fallback) ──────────────────────────────────────────
