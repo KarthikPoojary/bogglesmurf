@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-10 — OCR fix for Netflix Boggle grid photos
+
 ### Fixed
-- OCR: percentile contrast stretch (5th–95th) + invert — fixes near-zero accuracy on dark Netflix Boggle tiles; Tesseract expects dark text on light background so inversion is now applied after stretch. maxSize bumped 1600→2000 for sharper letter detail on high-res phones.
+- OCR: detect dark-purple tile region first (1-D pixel projection) and crop to it before running Tesseract — eliminates room background, TV bezel, player banners and timer from the image, giving the contrast-stretch a clean pixel distribution
+- OCR: height-based letter filter drops any detected character shorter than 55% of the median letter height, removing residual small UI text that survived the crop and confused grid clustering
+- OCR: confidence threshold lowered 15 → 5 — the bold rounded Boggle font scores lower than standard document text
+- OCR: maxSize bumped 1600 → 2000 for sharper letter detail on high-res phone cameras
 
 ## [0.7.0] - 2026-05-08 — M4: Settings sheet, drag calibration, swipe fixes
 
