@@ -291,13 +291,120 @@ async function ocrWithTesseract(
   return buildGrid(letters)
 }
 
+// ─── per-cell ML Kit (most accurate when grid size is known) ──────────────────
+
+// Common ML Kit misreads of stylised Boggle font characters.
+// e.g. an "I" tile often reads back as "1", "[", "|", or "]".
+const CHAR_SUBS: Record<string, string> = {
+  '0': 'O', '1': 'I', '5': 'S', '8': 'B', '3': 'E', '4': 'A',
+  '[': 'I', ']': 'I', '|': 'I', '!': 'I', '/': 'I', '\\': 'I', '@': 'A',
+}
+
+function normalizeLetter(s: string): string {
+  return s.split('').map((c) => CHAR_SUBS[c] ?? c).join('').toUpperCase().replace(/[^A-Z]/g, '')
+}
+
+async function ocrSingleCell(
+  fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number,
+): Promise<string> {
+  // Draw the cell to a fresh canvas at 2× scale for sharper ML Kit input.
+  // 5% inset on each side strips tile edges/shadows that confuse detection.
+  const inset = 0.06
+  const insetX = sw * inset, insetY = sh * inset
+  const ix = sx + insetX, iy = sy + insetY
+  const iw = sw - 2 * insetX, ih = sh - 2 * insetY
+  const scaleUp = 2
+  const cellCanvas = document.createElement('canvas')
+  cellCanvas.width = Math.max(1, Math.round(iw * scaleUp))
+  cellCanvas.height = Math.max(1, Math.round(ih * scaleUp))
+  const ctx = cellCanvas.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, cellCanvas.width, cellCanvas.height)
+  ctx.drawImage(fullCanvas, ix, iy, iw, ih, 0, 0, cellCanvas.width, cellCanvas.height)
+  const base64 = cellCanvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+
+  const { CapacitorPluginMlKitTextRecognition } = await import(
+    '@pantrist/capacitor-plugin-ml-kit-text-recognition'
+  )
+  try {
+    const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
+    // Pick the element with the largest bbox area whose text contains a letter
+    let best: { ch: string; area: number } | null = null
+    for (const block of result.blocks) {
+      for (const line of block.lines) {
+        for (const el of line.elements) {
+          const letters = normalizeLetter(el.text)
+          if (!letters.length) continue
+          const w = el.boundingBox.right - el.boundingBox.left
+          const h = el.boundingBox.bottom - el.boundingBox.top
+          const area = Math.abs(w * h)
+          if (!best || area > best.area) best = { ch: letters[0], area }
+        }
+      }
+    }
+    return best?.ch ?? ''
+  } catch {
+    return ''
+  }
+}
+
+async function ocrWithMlKitPerCell(
+  file: File, gridSize: 4 | 5 | 6, onProgress?: (msg: OcrProgressMsg) => void,
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  onProgress?.('Reading image…')
+  const img = await loadImageFromFile(file)
+  onProgress?.(`Image: ${img.width}×${img.height}px`)
+
+  // Render at high resolution so each cell has enough detail for ML Kit
+  const maxFull = 1600
+  const scale = Math.min(1, maxFull / Math.max(img.width, img.height))
+  const fw = Math.round(img.width * scale)
+  const fh = Math.round(img.height * scale)
+  const fullCanvas = document.createElement('canvas')
+  fullCanvas.width = fw; fullCanvas.height = fh
+  const fctx = fullCanvas.getContext('2d')!
+  fctx.fillStyle = '#fff'
+  fctx.fillRect(0, 0, fw, fh)
+  fctx.drawImage(img, 0, 0, fw, fh)
+
+  const cellW = fw / gridSize
+  const cellH = fh / gridSize
+  const total = gridSize * gridSize
+
+  onProgress?.(`Per-cell OCR · ${total} cells · ${Math.round(cellW)}×${Math.round(cellH)}px each`)
+
+  // Fire all cells in parallel — ML Kit calls are independent
+  const promises: Promise<string>[] = []
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      promises.push(ocrSingleCell(fullCanvas, c * cellW, r * cellH, cellW, cellH))
+    }
+  }
+  const results = await Promise.all(promises)
+
+  const grid: string[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(''))
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      grid[r][c] = results[r * gridSize + c]
+    }
+  }
+
+  const filled = grid.flat().filter(Boolean).length
+  onProgress?.(`Grid: ${grid.map((row) => row.map((c) => c || '·').join('')).join(' / ')}`)
+  onProgress?.(`Filled ${filled}/${total} cells`)
+
+  return { grid, gridSize }
+}
+
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export async function ocrGrid(
   file: File,
-  onProgress?: (msg: OcrProgressMsg) => void
+  onProgress?: (msg: OcrProgressMsg) => void,
+  knownGridSize?: 4 | 5 | 6,
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
   if (Capacitor.isNativePlatform()) {
+    if (knownGridSize) return ocrWithMlKitPerCell(file, knownGridSize, onProgress)
     return ocrWithMlKit(file, onProgress)
   }
   return ocrWithTesseract(file, onProgress)

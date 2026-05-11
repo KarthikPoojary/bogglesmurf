@@ -52,7 +52,7 @@ async function cropImageFile(file: File, crop: CropBox): Promise<File> {
 }
 
 export function OcrCapture({ onClose }: Props) {
-  const { setLetter, setGridSize } = useBoggleStore()
+  const { setLetter, setGridSize, gridSize: storeGridSize } = useBoggleStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -122,11 +122,15 @@ export function OcrCapture({ onClose }: Props) {
       setDiagLog([...log])
 
       const { ocrGrid } = await import('../ocr/gridOcr')
-      const { grid, gridSize } = await ocrGrid(cropped, (msg) => {
-        setProgressMsg(msg)
-        log.push(msg)
-        setDiagLog([...log])
-      })
+      const { grid, gridSize } = await ocrGrid(
+        cropped,
+        (msg) => {
+          setProgressMsg(msg)
+          log.push(msg)
+          setDiagLog([...log])
+        },
+        storeGridSize,
+      )
 
       setGridSize(gridSize)
       for (let r = 0; r < gridSize; r++) {
@@ -260,6 +264,10 @@ export function OcrCapture({ onClose }: Props) {
               </div>
               <p className="text-[11px] text-slate-500 text-center -mt-1">
                 Drag the box to move · drag the green corner to resize
+              </p>
+              <p className="text-[11px] text-slate-600 text-center -mt-2">
+                Extracting as <span className="text-slate-400 font-semibold">{storeGridSize}×{storeGridSize}</span>
+                {' '}— change in the main screen if wrong
               </p>
               <div className="flex gap-2">
                 <button onClick={reset}

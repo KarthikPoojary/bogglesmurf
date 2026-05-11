@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-05-11 — Per-cell OCR + character substitutions
+
+### Added
+- Per-cell OCR mode: when the grid size is known (from the main UI selector),
+  the cropped image is split into N×N sub-images and each tile is OCRed
+  independently. Each ML Kit call gets a single-character target — much higher
+  accuracy than letting ML Kit decode the whole grid as one block.
+- All N² cell OCR calls fire in parallel via `Promise.all`.
+- Character substitution dictionary maps common ML Kit misreads back to letters:
+  `[ ] | ! / \\` → `I`, `0` → `O`, `1` → `I`, `5` → `S`, `8` → `B`, `3` → `E`,
+  `4 @` → `A`.
+- 6% inset on each cell crop strips tile edges/shadows from the ML Kit input.
+
+### Changed
+- Preview UI shows which grid size will be used so the user knows to switch
+  the main grid-size selector before scanning if needed.
+
 ## [0.8.1] - 2026-05-11 — Manual crop in OCR flow + block-based selection
 
 ### Added
