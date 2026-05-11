@@ -7,10 +7,56 @@ interface Props {
 
 type Stage = 'pick' | 'preview' | 'processing' | 'done' | 'error'
 
+interface CropBox {
+  x: number  // percent of image width
+  y: number  // percent of image height
+  w: number
+  h: number
+}
+
+interface DragState {
+  mode: 'move' | 'resize'
+  startX: number
+  startY: number
+  startCrop: CropBox
+}
+
+// Crop the file to the given percentage box and return a new File
+async function cropImageFile(file: File, crop: CropBox): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const sx = (crop.x / 100) * img.naturalWidth
+      const sy = (crop.y / 100) * img.naturalHeight
+      const sw = (crop.w / 100) * img.naturalWidth
+      const sh = (crop.h / 100) * img.naturalHeight
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(sw))
+      canvas.height = Math.max(1, Math.round(sh))
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { reject(new Error('Failed to crop image')); return }
+          resolve(new File([blob], 'cropped.jpg', { type: 'image/jpeg' }))
+        },
+        'image/jpeg',
+        0.92,
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image for crop')) }
+    img.src = url
+  })
+}
+
 export function OcrCapture({ onClose }: Props) {
   const { setLetter, setGridSize } = useBoggleStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<DragState | null>(null)
 
   const [stage, setStage] = useState<Stage>('pick')
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -19,11 +65,13 @@ export function OcrCapture({ onClose }: Props) {
   const [diagLog, setDiagLog] = useState<string[]>([])
   const [resultSummary, setResultSummary] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [crop, setCrop] = useState<CropBox>({ x: 10, y: 25, w: 80, h: 50 })
 
   const handleFile = useCallback((f: File) => {
     setFile(f)
     setImageUrl(URL.createObjectURL(f))
     setStage('preview')
+    setCrop({ x: 10, y: 25, w: 80, h: 50 })
   }, [])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -31,15 +79,50 @@ export function OcrCapture({ onClose }: Props) {
     if (f) handleFile(f)
   }
 
+  const startDrag = (e: React.PointerEvent, mode: 'move' | 'resize') => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragRef.current = { mode, startX: e.clientX, startY: e.clientY, startCrop: { ...crop } }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const onContainerPointerMove = (e: React.PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const dx = ((e.clientX - drag.startX) / rect.width) * 100
+    const dy = ((e.clientY - drag.startY) / rect.height) * 100
+
+    if (drag.mode === 'move') {
+      setCrop({
+        ...drag.startCrop,
+        x: Math.max(0, Math.min(100 - drag.startCrop.w, drag.startCrop.x + dx)),
+        y: Math.max(0, Math.min(100 - drag.startCrop.h, drag.startCrop.y + dy)),
+      })
+    } else {
+      setCrop({
+        ...drag.startCrop,
+        w: Math.max(15, Math.min(100 - drag.startCrop.x, drag.startCrop.w + dx)),
+        h: Math.max(15, Math.min(100 - drag.startCrop.y, drag.startCrop.h + dy)),
+      })
+    }
+  }
+
+  const endDrag = () => { dragRef.current = null }
+
   const runOcr = async () => {
     if (!file) return
     setStage('processing')
-    setProgressMsg('Starting…')
+    setProgressMsg('Cropping…')
     setDiagLog([])
     const log: string[] = []
     try {
+      const cropped = await cropImageFile(file, crop)
+      log.push(`Cropped to ${Math.round(crop.w)}%×${Math.round(crop.h)}% · ${Math.round(cropped.size / 1024)}KB`)
+      setDiagLog([...log])
+
       const { ocrGrid } = await import('../ocr/gridOcr')
-      const { grid, gridSize } = await ocrGrid(file, (msg) => {
+      const { grid, gridSize } = await ocrGrid(cropped, (msg) => {
         setProgressMsg(msg)
         log.push(msg)
         setDiagLog([...log])
@@ -56,8 +139,6 @@ export function OcrCapture({ onClose }: Props) {
       const total = gridSize * gridSize
       setResultSummary(`${gridSize}×${gridSize} grid detected · ${filled}/${total} letters read`)
       setStage('done')
-      // Auto-close only when the grid is fully populated; otherwise let the user
-      // inspect the log and decide
       if (filled === total) setTimeout(onClose, 1800)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'OCR failed — try a clearer photo')
@@ -85,7 +166,9 @@ export function OcrCapture({ onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div>
             <h2 className="font-semibold text-slate-100">Scan Boggle Grid</h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">Grid size is detected automatically</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {stage === 'preview' ? 'Drag the box to cover just the tiles' : 'Grid size is detected automatically'}
+            </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-2xl leading-none w-8 h-8 flex items-center justify-center">×</button>
         </div>
@@ -96,7 +179,7 @@ export function OcrCapture({ onClose }: Props) {
           {stage === 'pick' && (
             <>
               <p className="text-sm text-slate-400">
-                Take a photo of the Boggle grid or upload one. Try to capture the full grid squarely — the app detects size and letters automatically.
+                Take a photo of the Boggle grid or upload one. You'll then drag a box around just the tiles before extraction.
               </p>
               <div className="flex flex-col gap-2.5">
                 <button onClick={() => cameraRef.current?.click()}
@@ -108,22 +191,75 @@ export function OcrCapture({ onClose }: Props) {
                   🖼 Upload from Gallery
                 </button>
               </div>
-              <p className="text-[11px] text-slate-600 text-center">
-                Works best with good lighting and the grid filling most of the frame
-              </p>
               <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" />
               <input ref={fileRef} type="file" accept="image/*" onChange={handleInputChange} className="hidden" />
             </>
           )}
 
-          {/* PREVIEW */}
+          {/* PREVIEW with draggable crop */}
           {stage === 'preview' && imageUrl && (
             <>
-              <div className="rounded-xl overflow-hidden bg-black">
-                <img src={imageUrl} alt="Grid preview" className="w-full object-contain max-h-72" />
+              <div className="flex justify-center">
+                <div
+                  ref={containerRef}
+                  className="relative inline-block bg-black rounded-xl overflow-hidden select-none"
+                  onPointerMove={onContainerPointerMove}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                  style={{ touchAction: 'none' }}
+                >
+                  <img
+                    src={imageUrl}
+                    alt="Grid preview"
+                    className="block max-h-72 max-w-full pointer-events-none"
+                    draggable={false}
+                  />
+
+                  {/* Dark mask outside crop */}
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      boxShadow: `inset 0 0 0 9999px rgba(0,0,0,0.55)`,
+                      clipPath: `polygon(
+                        0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+                        ${crop.x}% ${crop.y}%,
+                        ${crop.x}% ${crop.y + crop.h}%,
+                        ${crop.x + crop.w}% ${crop.y + crop.h}%,
+                        ${crop.x + crop.w}% ${crop.y}%,
+                        ${crop.x}% ${crop.y}%
+                      )`,
+                    }}
+                  />
+
+                  {/* Crop rectangle */}
+                  <div
+                    className="absolute border-2 border-emerald-400"
+                    style={{
+                      left: `${crop.x}%`,
+                      top: `${crop.y}%`,
+                      width: `${crop.w}%`,
+                      height: `${crop.h}%`,
+                      touchAction: 'none',
+                      cursor: 'move',
+                    }}
+                    onPointerDown={(e) => startDrag(e, 'move')}
+                  >
+                    {/* Resize handle (bottom-right) */}
+                    <div
+                      className="absolute w-7 h-7 bg-emerald-400 rounded border-2 border-slate-900"
+                      style={{
+                        right: '-14px',
+                        bottom: '-14px',
+                        touchAction: 'none',
+                        cursor: 'nwse-resize',
+                      }}
+                      onPointerDown={(e) => startDrag(e, 'resize')}
+                    />
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-slate-500 text-center -mt-1">
-                Make sure the entire grid is visible and not cut off
+              <p className="text-[11px] text-slate-500 text-center -mt-1">
+                Drag the box to move · drag the green corner to resize
               </p>
               <div className="flex gap-2">
                 <button onClick={reset}
@@ -194,7 +330,6 @@ export function OcrCapture({ onClose }: Props) {
                 <p className="text-red-300 text-sm">{errorMsg}</p>
               </div>
 
-              {/* Diagnostic log — helps debug what went wrong */}
               {diagLog.length > 0 && (
                 <div className="bg-slate-800 rounded-xl p-3 max-h-40 overflow-y-auto">
                   <p className="text-[10px] text-slate-500 font-semibold mb-1 uppercase tracking-wide">Diagnostic log</p>
@@ -204,15 +339,6 @@ export function OcrCapture({ onClose }: Props) {
                 </div>
               )}
 
-              <div className="text-xs text-slate-500 space-y-1">
-                <p>Tips for better results:</p>
-                <ul className="list-disc list-inside space-y-0.5 text-slate-600">
-                  <li>Hold the phone directly above the grid</li>
-                  <li>Make sure all tiles are in frame</li>
-                  <li>Use bright, even lighting</li>
-                  <li>Avoid glare on the tiles</li>
-                </ul>
-              </div>
               <div className="flex gap-2">
                 <button onClick={reset}
                   className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium text-sm">

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-11 — Manual crop in OCR flow + block-based selection
+
+### Added
+- Draggable + resizable crop rectangle on the photo preview. User aligns the
+  box around just the Boggle tiles before extraction; only that region is sent
+  to ML Kit. Eliminates the need for ML Kit to disambiguate grid tiles from
+  player banners, timer, and other UI text.
+
+### Changed
+- ML Kit pipeline now selects the spatial "block" with letter count closest to
+  a perfect square (16/25/36) instead of using a global height filter. Height
+  filter was unreliable on shrunk images where ML Kit assigned inconsistent
+  bbox heights to same-size text.
+- Image cap reduced to 1000px max + JPEG quality 0.85 to keep the JS↔native
+  bridge serialization fast.
+- 15s timeout on the ML Kit call and 10s timeout on image load so a hung
+  plugin can't freeze the UI indefinitely.
+- Cancel button added to the processing screen as an escape hatch.
+
 ## [0.8.0] - 2026-05-10 — Replace Tesseract with Google ML Kit on Android
 
 ### Changed
