@@ -33,7 +33,28 @@ export function ResultsPanel() {
   }
 
   if (solutions.length === 0) {
-    return <div className="flex items-center justify-center h-32 text-slate-500 text-sm">Fill the grid and tap Solve</div>
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 h-40 text-center">
+        <p className="text-slate-500 text-sm">Fill the grid and tap Solve</p>
+        {overlaySupported && (
+          <>
+            <button
+              onClick={() => {
+                Swipe.setCalibration({ ...swipeCalibration, gridSize }).catch(() => {})
+                if (overlayVisible) hideOverlay()
+                else floatWords([], new Set())
+              }}
+              className="text-xs px-4 py-2 rounded-lg border border-violet-700/60 bg-violet-950/40 text-violet-300 hover:bg-violet-900/40 transition-colors"
+            >
+              {overlayVisible ? '↘  Hide overlay' : '↗  Show overlay (capture from Netflix)'}
+            </button>
+            <p className="text-[10px] text-slate-600 max-w-[260px] leading-relaxed">
+              Open the floating overlay first, then tap 📷 on it while in Netflix Boggle to scan and solve in one tap.
+            </p>
+          </>
+        )}
+      </div>
+    )
   }
 
   const commonList = solutions.filter((s) => commonWords.has(s.word))
