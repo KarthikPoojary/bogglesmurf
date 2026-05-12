@@ -5,7 +5,7 @@ interface Props {
   onClose: () => void
 }
 
-type Stage = 'pick' | 'preview' | 'processing' | 'done' | 'error'
+type Stage = 'pick' | 'preview' | 'processing' | 'done' | 'error' | 'api-keys'
 
 interface CropBox {
   x: number  // percent of image width
@@ -19,6 +19,89 @@ interface DragState {
   startX: number
   startY: number
   startCrop: CropBox
+}
+
+function ApiKeysForm({
+  initialGroq, initialGemini, onSave, onCancel,
+}: {
+  initialGroq: string
+  initialGemini: string
+  onSave: (groq: string, gemini: string) => void
+  onCancel: () => void
+}) {
+  const [groq, setGroq] = useState(initialGroq)
+  const [gemini, setGemini] = useState(initialGemini)
+  return (
+    <>
+      <p className="text-xs text-slate-400">
+        Paste a vision-model API key to get near-100% OCR accuracy. Keys are
+        stored locally on this device only and sent only to the provider when you scan.
+      </p>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-slate-300 font-medium">Groq (primary)</label>
+          <a
+            href="https://console.groq.com/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-violet-400 hover:text-violet-300 underline"
+          >
+            Get a free key ↗
+          </a>
+        </div>
+        <input
+          type="password"
+          value={groq}
+          onChange={(e) => setGroq(e.target.value.trim())}
+          placeholder="gsk_…"
+          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-sm font-mono focus:outline-none focus:border-violet-500"
+        />
+        <p className="text-[10px] text-slate-600">Free: 1,000 requests/day · Llama-4-Scout vision · ~1s per scan</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-slate-300 font-medium">Gemini (fallback)</label>
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-violet-400 hover:text-violet-300 underline"
+          >
+            Get a free key ↗
+          </a>
+        </div>
+        <input
+          type="password"
+          value={gemini}
+          onChange={(e) => setGemini(e.target.value.trim())}
+          placeholder="AIza…"
+          className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-sm font-mono focus:outline-none focus:border-violet-500"
+        />
+        <p className="text-[10px] text-slate-600">Free: 500 requests/day · Gemini 2.5 Flash · ~4s per scan</p>
+      </div>
+
+      <p className="text-[10px] text-slate-600">
+        If both fail or are blank, the app falls back to on-device OCR (slower and less accurate).
+      </p>
+
+      <div className="flex gap-2 mt-1">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium text-sm transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => onSave(groq, gemini)}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </>
+  )
 }
 
 // Crop the file to the given percentage box and return a new File
@@ -52,7 +135,10 @@ async function cropImageFile(file: File, crop: CropBox): Promise<File> {
 }
 
 export function OcrCapture({ onClose }: Props) {
-  const { setLetter, setGridSize, gridSize: storeGridSize } = useBoggleStore()
+  const {
+    setLetter, setGridSize, gridSize: storeGridSize,
+    groqApiKey, geminiApiKey, setGroqApiKey, setGeminiApiKey,
+  } = useBoggleStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -130,6 +216,7 @@ export function OcrCapture({ onClose }: Props) {
           setDiagLog([...log])
         },
         storeGridSize,
+        { groqApiKey, geminiApiKey },
       )
 
       setGridSize(gridSize)
@@ -169,12 +256,27 @@ export function OcrCapture({ onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div>
-            <h2 className="font-semibold text-slate-100">Scan Boggle Grid</h2>
+            <h2 className="font-semibold text-slate-100">
+              {stage === 'api-keys' ? 'Vision API keys' : 'Scan Boggle Grid'}
+            </h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {stage === 'preview' ? 'Drag the box to cover just the tiles' : 'Grid size is detected automatically'}
+              {stage === 'preview' && 'Drag the box to cover just the tiles'}
+              {stage === 'api-keys' && 'Optional — for higher OCR accuracy'}
+              {stage !== 'preview' && stage !== 'api-keys' && 'Grid size is detected automatically'}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-2xl leading-none w-8 h-8 flex items-center justify-center">×</button>
+          <div className="flex items-center gap-1">
+            {stage === 'pick' && (
+              <button
+                onClick={() => setStage('api-keys')}
+                className="text-slate-500 hover:text-slate-300 text-lg leading-none w-8 h-8 flex items-center justify-center"
+                aria-label="Vision API settings"
+              >
+                ⚙
+              </button>
+            )}
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-2xl leading-none w-8 h-8 flex items-center justify-center">×</button>
+          </div>
         </div>
 
         <div className="p-5 flex flex-col gap-4">
@@ -197,7 +299,30 @@ export function OcrCapture({ onClose }: Props) {
               </div>
               <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" />
               <input ref={fileRef} type="file" accept="image/*" onChange={handleInputChange} className="hidden" />
+
+              {(groqApiKey || geminiApiKey) ? (
+                <p className="text-[11px] text-emerald-500 text-center">
+                  ✓ Vision API configured — high-accuracy OCR enabled
+                </p>
+              ) : (
+                <button
+                  onClick={() => setStage('api-keys')}
+                  className="text-[11px] text-violet-400 hover:text-violet-300 text-center underline"
+                >
+                  Add a Vision API key for ~100% accuracy →
+                </button>
+              )}
             </>
+          )}
+
+          {/* API KEYS */}
+          {stage === 'api-keys' && (
+            <ApiKeysForm
+              initialGroq={groqApiKey}
+              initialGemini={geminiApiKey}
+              onSave={(g, m) => { setGroqApiKey(g); setGeminiApiKey(m); setStage('pick') }}
+              onCancel={() => setStage('pick')}
+            />
           )}
 
           {/* PREVIEW with draggable crop */}

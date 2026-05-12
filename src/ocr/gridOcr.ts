@@ -611,13 +611,170 @@ async function ocrWithMlKitPerCell(
   return { grid, gridSize }
 }
 
+// ─── Vision API providers (Groq, Gemini) ─────────────────────────────────────
+
+interface VisionApiKeys {
+  groqApiKey?: string
+  geminiApiKey?: string
+}
+
+const VISION_PROMPT = `You are reading a Boggle grid from a photograph.
+The grid is N×N where N is 4, 5, or 6. Tiles contain a single uppercase letter,
+except occasional "QU" tiles which contain two letters as one tile.
+
+Return ONLY a JSON object with two fields, no prose:
+{
+  "size": <4|5|6>,
+  "grid": [["A","B",...], ["C","D",...], ...]
+}
+
+Each inner array represents one row in reading order (top→bottom, left→right).
+Each cell is a single uppercase letter, or "QU" for a Qu-tile. No extra
+characters, no quotes inside cells, no markdown fences.`
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const r = reader.result as string
+      const comma = r.indexOf(',')
+      resolve(comma >= 0 ? r.slice(comma + 1) : r)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function tryParseGridJson(text: string): { size?: number; grid?: unknown } | null {
+  const cleaned = text.replace(/```(?:json)?/g, '').trim()
+  try { return JSON.parse(cleaned) } catch { return null }
+}
+
+function normalizeGridResponse(raw: unknown, knownGridSize?: 4 | 5 | 6): { grid: string[][]; gridSize: 4 | 5 | 6 } {
+  if (!Array.isArray(raw)) throw new Error('Response did not contain a grid array')
+  const grid: string[][] = raw.map((row) => {
+    if (!Array.isArray(row)) throw new Error('Row is not an array')
+    return row.map((c) => {
+      const s = String(c ?? '').toUpperCase().trim()
+      if (s === 'QU') return 'QU'
+      // Strip everything but A-Z, keep first letter
+      const cleaned = s.replace(/[^A-Z]/g, '')
+      return cleaned[0] ?? ''
+    })
+  })
+  const n = grid.length
+  if (n !== 4 && n !== 5 && n !== 6) throw new Error(`Unexpected grid size ${n}`)
+  if (grid.some((r) => r.length !== n)) throw new Error('Grid is not square')
+  const gridSize = (knownGridSize ?? n) as 4 | 5 | 6
+  return { grid, gridSize }
+}
+
+async function ocrWithGroq(
+  file: File, apiKey: string, onProgress?: (msg: OcrProgressMsg) => void,
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  onProgress?.('Groq vision…')
+  const base64 = await fileToBase64(file)
+  const t0 = Date.now()
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: VISION_PROMPT },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+        ],
+      }],
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Groq ${res.status}: ${err.slice(0, 200)}`)
+  }
+  const data = await res.json()
+  const text = data?.choices?.[0]?.message?.content ?? ''
+  const parsed = tryParseGridJson(text)
+  if (!parsed) throw new Error(`Groq returned unparseable JSON`)
+  const result = normalizeGridResponse(parsed.grid)
+  onProgress?.(`Groq ${Date.now() - t0}ms: ${result.gridSize}×${result.gridSize}`)
+  return result
+}
+
+async function ocrWithGemini(
+  file: File, apiKey: string, onProgress?: (msg: OcrProgressMsg) => void,
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  onProgress?.('Gemini vision…')
+  const base64 = await fileToBase64(file)
+  const t0 = Date.now()
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: VISION_PROMPT },
+          { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+        ],
+      }],
+      generationConfig: { response_mime_type: 'application/json', temperature: 0 },
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Gemini ${res.status}: ${err.slice(0, 200)}`)
+  }
+  const data = await res.json()
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  const parsed = tryParseGridJson(text)
+  if (!parsed) throw new Error(`Gemini returned unparseable JSON`)
+  const result = normalizeGridResponse(parsed.grid)
+  onProgress?.(`Gemini ${Date.now() - t0}ms: ${result.gridSize}×${result.gridSize}`)
+  return result
+}
+
+// Try vision providers in order, fall through to next on failure
+async function ocrWithVisionApi(
+  file: File, keys: VisionApiKeys, onProgress?: (msg: OcrProgressMsg) => void,
+): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 } | null> {
+  if (keys.groqApiKey) {
+    try {
+      return await ocrWithGroq(file, keys.groqApiKey, onProgress)
+    } catch (err) {
+      onProgress?.(`Groq failed: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  if (keys.geminiApiKey) {
+    try {
+      return await ocrWithGemini(file, keys.geminiApiKey, onProgress)
+    } catch (err) {
+      onProgress?.(`Gemini failed: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  return null
+}
+
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export async function ocrGrid(
   file: File,
   onProgress?: (msg: OcrProgressMsg) => void,
   knownGridSize?: 4 | 5 | 6,
+  apiKeys?: VisionApiKeys,
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
+  // Try vision API first if any key is configured
+  if (apiKeys && (apiKeys.groqApiKey || apiKeys.geminiApiKey)) {
+    const result = await ocrWithVisionApi(file, apiKeys, onProgress)
+    if (result) return result
+    onProgress?.('Vision API failed — falling back to on-device OCR')
+  }
   if (Capacitor.isNativePlatform()) {
     if (knownGridSize) return ocrWithMlKitPerCell(file, knownGridSize, onProgress)
     return ocrWithMlKit(file, onProgress)

@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-12 — Vision API OCR (Groq + Gemini)
+
+### Added
+- Optional cloud Vision API OCR for near-100% accuracy. Two providers wired
+  in: Groq (Llama-4-Scout vision, primary, ~1s, 1000 requests/day free) and
+  Gemini 2.5 Flash (fallback, ~4s, 500 requests/day free).
+- Per-image test on 3 stylised Boggle grids: Groq scored 108/108 (100%) and
+  Gemini 105/108 (97%), vs the ML Kit pipeline which sat at ~83% on the same
+  images.
+- New "Vision API keys" settings screen accessible from the ⚙ icon in the
+  scan dialog. Keys are stored in localStorage only and never sent anywhere
+  except to the respective provider when scanning.
+- `scripts/ocr-compare.mjs` test harness to benchmark providers offline.
+
+### Changed
+- `ocrGrid()` tries Groq → Gemini → on-device (ML Kit on Android, Tesseract
+  on web) in that order, falling through on failure. Behavior is unchanged
+  if no Vision API keys are configured.
+- Banner on the scan picker indicates whether Vision API is active.
+
 ## [0.8.6] - 2026-05-12 — Per-column OCR fallback
 
 ### Added

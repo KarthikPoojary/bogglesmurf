@@ -18,6 +18,8 @@ interface BoggleState {
   isSolving: boolean
   overlayAlpha: number
   swipeCalibration: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number; swipeDelayMs: number }
+  groqApiKey: string
+  geminiApiKey: string
 
   setGridSize: (size: GridSize) => void
   setLetter: (row: number, col: number, letter: string) => void
@@ -29,6 +31,8 @@ interface BoggleState {
   setIsSolving: (b: boolean) => void
   setOverlayAlpha: (n: number) => void
   setSwipeCalibration: (c: { gridLeftPct: number; gridTopPct: number; gridWidthPct: number; swipeDelayMs: number }) => void
+  setGroqApiKey: (k: string) => void
+  setGeminiApiKey: (k: string) => void
 }
 
 export const useBoggleStore = create<BoggleState>()(
@@ -43,6 +47,8 @@ export const useBoggleStore = create<BoggleState>()(
       isSolving: false,
       overlayAlpha: 0.85,
       swipeCalibration: { gridLeftPct: 5, gridTopPct: 28, gridWidthPct: 90, swipeDelayMs: 400 },
+      groqApiKey: '',
+      geminiApiKey: '',
 
       setGridSize: (size) => set({ gridSize: size, letters: emptyGrid(size), solutions: [], selectedWord: null }),
       setLetter: (row, col, letter) => {
@@ -58,12 +64,15 @@ export const useBoggleStore = create<BoggleState>()(
       setIsSolving: (isSolving) => set({ isSolving }),
       setOverlayAlpha: (overlayAlpha) => set({ overlayAlpha }),
       setSwipeCalibration: (swipeCalibration) => set({ swipeCalibration }),
+      setGroqApiKey: (groqApiKey) => set({ groqApiKey }),
+      setGeminiApiKey: (geminiApiKey) => set({ geminiApiKey }),
     }),
     {
       name: 'bogglesmurf',
       partialize: (s) => ({
         gridSize: s.gridSize, minLen: s.minLen, maxLen: s.maxLen,
         letters: s.letters, overlayAlpha: s.overlayAlpha, swipeCalibration: s.swipeCalibration,
+        groqApiKey: s.groqApiKey, geminiApiKey: s.geminiApiKey,
       }),
       // Rebuild letters from persisted value; fall back to empty grid if not present
       // (handles old persisted data that predates letters persistence).

@@ -157,6 +157,7 @@ scripts/deploy-android.sh.example — template with placeholders
 - **Tailwind v4:** CSS-native, no `tailwind.config.js`
 - **Android foreground service:** `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`; on API 34+ requires 3-arg `startForeground()`
 - **App version:** injected as `__APP_VERSION__` via `vite.config.ts` `define` (reads `package.json` at build time); declared in `src/global.d.ts`; displayed as a clickable badge in the header that opens `ChangelogModal`; update `package.json` version + add CHANGELOG entry for each release
+- **OCR provider order:** `ocrGrid()` in `src/ocr/gridOcr.ts` tries Groq Llama-4-Scout → Gemini 2.5 Flash → on-device (ML Kit native, Tesseract web). Vision API keys are stored in Zustand store (`groqApiKey`, `geminiApiKey`), entered via a settings screen in `OcrCapture`. Empty keys skip that provider. Test harness: `node scripts/ocr-compare.mjs <img>...` with `GROQ_API_KEY`/`GEMINI_API_KEY` env vars. Benchmark on 3 stylised Boggle grids: Groq 100%, Gemini 97%, ML Kit ~83%.
 
 ## Commit rules
 
