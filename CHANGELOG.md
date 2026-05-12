@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-05-12 — Per-column OCR fallback
+
+### Added
+- Per-column OCR fallback. Any column that still has empty cells after the
+  per-row pass is rotated 90° and OCRed as horizontal text. ML Kit detects
+  the lone letters that even row context missed (typically `I`s in a column
+  surrounded by other letters). Position-based mapping fills the remaining
+  empty cells.
+
 ## [0.8.5] - 2026-05-12 — Position-based row fallback
 
 ### Changed

@@ -434,6 +434,79 @@ async function ocrRow(
   return placements
 }
 
+// Per-column fallback: same idea as ocrRow but for vertical strips. We rotate
+// the column 90° so it becomes horizontal text for ML Kit, then map detected
+// x-positions back to row indices.
+async function ocrColumn(
+  fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number, gridSize: number,
+): Promise<{ row: number; ch: string }[]> {
+  const insetFrac = 0.03
+  const ix = sx + sw * insetFrac, iy = sy + sh * insetFrac
+  const iw = sw - 2 * sw * insetFrac, ih = sh - 2 * sh * insetFrac
+
+  const scaleUp = 1.5
+  const sourceW = Math.max(1, Math.round(iw * scaleUp))
+  const sourceH = Math.max(1, Math.round(ih * scaleUp))
+
+  // Step 1: render the column into a canvas, inverted
+  const sourceCanvas = document.createElement('canvas')
+  sourceCanvas.width = sourceW
+  sourceCanvas.height = sourceH
+  const sctx = sourceCanvas.getContext('2d')!
+  sctx.fillStyle = '#fff'
+  sctx.fillRect(0, 0, sourceW, sourceH)
+  sctx.drawImage(fullCanvas, ix, iy, iw, ih, 0, 0, sourceW, sourceH)
+  const sid = sctx.getImageData(0, 0, sourceW, sourceH)
+  for (let i = 0; i < sid.data.length; i += 4) {
+    sid.data[i] = 255 - sid.data[i]
+    sid.data[i + 1] = 255 - sid.data[i + 1]
+    sid.data[i + 2] = 255 - sid.data[i + 2]
+  }
+  sctx.putImageData(sid, 0, 0)
+
+  // Step 2: rotate the column 90° CCW so it becomes a horizontal text strip
+  const rotCanvas = document.createElement('canvas')
+  rotCanvas.width = sourceH
+  rotCanvas.height = sourceW
+  const rctx = rotCanvas.getContext('2d')!
+  rctx.fillStyle = '#fff'
+  rctx.fillRect(0, 0, rotCanvas.width, rotCanvas.height)
+  rctx.translate(0, sourceW)
+  rctx.rotate(-Math.PI / 2)
+  rctx.drawImage(sourceCanvas, 0, 0)
+
+  const base64 = rotCanvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+
+  const { CapacitorPluginMlKitTextRecognition } = await import(
+    '@pantrist/capacitor-plugin-ml-kit-text-recognition'
+  )
+  const placements: { row: number; ch: string }[] = []
+  try {
+    const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
+    for (const block of result.blocks) {
+      for (const line of block.lines) {
+        for (const el of line.elements) {
+          const chars = normalizeLetter(el.text)
+          if (chars.length === 0) continue
+          const elLeft = el.boundingBox.left
+          const elRight = el.boundingBox.right
+          const elW = Math.max(1, elRight - elLeft)
+          const subW = elW / chars.length
+          for (let i = 0; i < chars.length; i++) {
+            const cx = elLeft + subW * (i + 0.5)
+            // After CCW rotation, x in the rotated canvas corresponds to y
+            // (i.e. row) in the source column. Top of column → left of canvas.
+            const frac = cx / rotCanvas.width
+            const row = Math.max(0, Math.min(gridSize - 1, Math.floor(frac * gridSize)))
+            placements.push({ row, ch: chars[i] })
+          }
+        }
+      }
+    }
+  } catch { /* swallow */ }
+  return placements
+}
+
 async function ocrWithMlKitPerCell(
   file: File, gridSize: 4 | 5 | 6, onProgress?: (msg: OcrProgressMsg) => void,
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
@@ -503,6 +576,34 @@ async function ocrWithMlKitPerCell(
     }
     filled = grid.flat().filter(Boolean).length
     onProgress?.(`After row fallback: ${filled}/${total} filled`)
+  }
+
+  // Per-column fallback for columns that still have empty cells.
+  // ML Kit reads the rotated column as horizontal text, often catching
+  // lone letters that row context missed.
+  const colsNeedingHelp: number[] = []
+  for (let c = 0; c < gridSize; c++) {
+    for (let r = 0; r < gridSize; r++) {
+      if (!grid[r][c]) { colsNeedingHelp.push(c); break }
+    }
+  }
+  if (colsNeedingHelp.length > 0) {
+    onProgress?.(`Per-column fallback on ${colsNeedingHelp.length} col(s)…`)
+    const colResults = await Promise.all(
+      colsNeedingHelp.map((c) => ocrColumn(fullCanvas, c * cellW, 0, cellW, fh, gridSize)),
+    )
+    for (let i = 0; i < colsNeedingHelp.length; i++) {
+      const c = colsNeedingHelp[i]
+      const placements = colResults[i]
+      const usedRows = new Set<number>()
+      for (const p of placements) {
+        if (usedRows.has(p.row)) continue
+        usedRows.add(p.row)
+        if (!grid[p.row][c]) grid[p.row][c] = p.ch
+      }
+    }
+    filled = grid.flat().filter(Boolean).length
+    onProgress?.(`After col fallback: ${filled}/${total} filled`)
   }
 
   onProgress?.(`Grid: ${grid.map((row) => row.map((c) => c || '·').join('')).join(' / ')}`)
