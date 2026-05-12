@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-05-12 — Inverted-color cell OCR with fallback
+
+### Changed
+- Per-cell OCR now inverts each cell image before sending to ML Kit. Boggle
+  tiles are white letters on dark backgrounds; inversion produces dark letters
+  on light backgrounds — the standard "document scan" distribution ML Kit was
+  trained for. This dramatically helps text-detection on thin/round letters
+  (`I`, `O`) that were previously skipped.
+- If inverted OCR returns nothing for a cell, the original-color version is
+  tried as fallback (rare cases where inversion makes things worse).
+- Cell crops now rendered at 3× scale (was 2×) for sharper ML Kit input.
+
 ## [0.8.2] - 2026-05-11 — Per-cell OCR + character substitutions
 
 ### Added

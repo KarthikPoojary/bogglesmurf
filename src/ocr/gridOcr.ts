@@ -304,16 +304,16 @@ function normalizeLetter(s: string): string {
   return s.split('').map((c) => CHAR_SUBS[c] ?? c).join('').toUpperCase().replace(/[^A-Z]/g, '')
 }
 
-async function ocrSingleCell(
+function renderCellCanvas(
   fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number,
-): Promise<string> {
-  // Draw the cell to a fresh canvas at 2× scale for sharper ML Kit input.
-  // 5% inset on each side strips tile edges/shadows that confuse detection.
+  invert: boolean,
+): HTMLCanvasElement {
+  // 6% inset strips tile edges/shadows; 3× scale gives ML Kit sharp input.
   const inset = 0.06
   const insetX = sw * inset, insetY = sh * inset
   const ix = sx + insetX, iy = sy + insetY
   const iw = sw - 2 * insetX, ih = sh - 2 * insetY
-  const scaleUp = 2
+  const scaleUp = 3
   const cellCanvas = document.createElement('canvas')
   cellCanvas.width = Math.max(1, Math.round(iw * scaleUp))
   cellCanvas.height = Math.max(1, Math.round(ih * scaleUp))
@@ -321,14 +321,29 @@ async function ocrSingleCell(
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, cellCanvas.width, cellCanvas.height)
   ctx.drawImage(fullCanvas, ix, iy, iw, ih, 0, 0, cellCanvas.width, cellCanvas.height)
-  const base64 = cellCanvas.toDataURL('image/jpeg', 0.9).split(',')[1]
 
+  if (invert) {
+    // Invert colors so white-on-dark tile letters become dark-on-light text,
+    // which is what ML Kit's text-detection phase is trained on.
+    const id = ctx.getImageData(0, 0, cellCanvas.width, cellCanvas.height)
+    const d = id.data
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = 255 - d[i]
+      d[i + 1] = 255 - d[i + 1]
+      d[i + 2] = 255 - d[i + 2]
+    }
+    ctx.putImageData(id, 0, 0)
+  }
+  return cellCanvas
+}
+
+async function ocrCanvasOnce(canvas: HTMLCanvasElement): Promise<string> {
+  const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
   const { CapacitorPluginMlKitTextRecognition } = await import(
     '@pantrist/capacitor-plugin-ml-kit-text-recognition'
   )
   try {
     const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
-    // Pick the element with the largest bbox area whose text contains a letter
     let best: { ch: string; area: number } | null = null
     for (const block of result.blocks) {
       for (const line of block.lines) {
@@ -346,6 +361,18 @@ async function ocrSingleCell(
   } catch {
     return ''
   }
+}
+
+async function ocrSingleCell(
+  fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number,
+): Promise<string> {
+  // First try: inverted (dark-on-light) — ML Kit's preferred orientation
+  const inverted = renderCellCanvas(fullCanvas, sx, sy, sw, sh, true)
+  const fromInverted = await ocrCanvasOnce(inverted)
+  if (fromInverted) return fromInverted
+  // Fallback: original colors. Some letters (I, O) sometimes only detect this way.
+  const original = renderCellCanvas(fullCanvas, sx, sy, sw, sh, false)
+  return await ocrCanvasOnce(original)
 }
 
 async function ocrWithMlKitPerCell(
