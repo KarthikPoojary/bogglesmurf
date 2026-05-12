@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-05-12 — Position-based row fallback
+
+### Changed
+- Per-row OCR fallback now uses each detected letter's x-position to determine
+  which column it belongs to, instead of requiring exactly `gridSize` letters
+  to be returned. Even partial row results (e.g. `DTPH` for a 6-letter row)
+  now fill in any empty cells whose columns the detected letters match.
+
 ## [0.8.4] - 2026-05-12 — Per-row OCR fallback for missed cells
 
 ### Added

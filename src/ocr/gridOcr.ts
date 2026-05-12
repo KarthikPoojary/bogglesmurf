@@ -376,25 +376,23 @@ async function ocrSingleCell(
 }
 
 // Per-row OCR fallback: when individual cells return empty (common for I and O
-// in isolation), OCR the whole row as a single text strip. ML Kit's text
-// detection is much more reliable on a sequence of letters than a single one.
-// Returns an array of `gridSize` letters, or empty array if the OCR can't
-// confidently produce that many characters.
+// in isolation), OCR the whole row as a single text strip. Returns an array of
+// {col, ch} placements — each detected letter mapped to its grid column based
+// on x-position. The caller fills any empty cell whose column matches.
 async function ocrRow(
   fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number, gridSize: number,
-): Promise<string[]> {
-  const inset = 0.03
-  const ix = sx + sw * inset, iy = sy + sh * inset
-  const iw = sw - 2 * sw * inset, ih = sh - 2 * sh * inset
+): Promise<{ col: number; ch: string }[]> {
+  const insetFrac = 0.03
+  const ix = sx + sw * insetFrac, iy = sy + sh * insetFrac
+  const iw = sw - 2 * sw * insetFrac, ih = sh - 2 * sh * insetFrac
   const rowCanvas = document.createElement('canvas')
-  // Tall and wide enough that ML Kit treats this as readable text
   rowCanvas.width = Math.max(1, Math.round(iw * 1.5))
   rowCanvas.height = Math.max(1, Math.round(ih * 1.5))
   const ctx = rowCanvas.getContext('2d')!
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, rowCanvas.width, rowCanvas.height)
   ctx.drawImage(fullCanvas, ix, iy, iw, ih, 0, 0, rowCanvas.width, rowCanvas.height)
-  // Invert: white-on-dark tiles → dark-on-light text
+  // Invert colors so white-on-dark Boggle tiles become dark-on-light text
   const id = ctx.getImageData(0, 0, rowCanvas.width, rowCanvas.height)
   const d = id.data
   for (let i = 0; i < d.length; i += 4) {
@@ -408,23 +406,32 @@ async function ocrRow(
   const { CapacitorPluginMlKitTextRecognition } = await import(
     '@pantrist/capacitor-plugin-ml-kit-text-recognition'
   )
+  const placements: { col: number; ch: string }[] = []
   try {
     const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
-    let allLetters = ''
     for (const block of result.blocks) {
       for (const line of block.lines) {
         for (const el of line.elements) {
-          allLetters += normalizeLetter(el.text)
+          const chars = normalizeLetter(el.text)
+          if (chars.length === 0) continue
+          const elLeft = el.boundingBox.left
+          const elRight = el.boundingBox.right
+          const elW = Math.max(1, elRight - elLeft)
+          // For multi-character elements, distribute positions evenly
+          const subW = elW / chars.length
+          for (let i = 0; i < chars.length; i++) {
+            const cx = elLeft + subW * (i + 0.5)
+            // Map canvas-x to grid column. Canvas width spans (1 - 2*insetFrac)
+            // of the source row, so the visible portion roughly equals the row.
+            const frac = cx / rowCanvas.width
+            const col = Math.max(0, Math.min(gridSize - 1, Math.floor(frac * gridSize)))
+            placements.push({ col, ch: chars[i] })
+          }
         }
       }
     }
-    if (allLetters.length === gridSize) return allLetters.split('')
-    // If we got more chars than expected, trim (handles "QU" tiles producing 2 chars)
-    if (allLetters.length === gridSize + 1) return allLetters.slice(0, gridSize).split('')
-    return []
-  } catch {
-    return []
-  }
+  } catch { /* swallow */ }
+  return placements
 }
 
 async function ocrWithMlKitPerCell(
@@ -484,11 +491,14 @@ async function ocrWithMlKitPerCell(
     )
     for (let i = 0; i < rowsNeedingHelp.length; i++) {
       const r = rowsNeedingHelp[i]
-      const rowLetters = rowResults[i]
-      if (rowLetters.length === gridSize) {
-        for (let c = 0; c < gridSize; c++) {
-          if (!grid[r][c] && rowLetters[c]) grid[r][c] = rowLetters[c]
-        }
+      const placements = rowResults[i]
+      // Fill each empty cell from any placement whose column matches.
+      // First placement wins per column (don't overwrite).
+      const used = new Set<number>()
+      for (const p of placements) {
+        if (used.has(p.col)) continue
+        used.add(p.col)
+        if (!grid[r][p.col]) grid[r][p.col] = p.ch
       }
     }
     filled = grid.flat().filter(Boolean).length
