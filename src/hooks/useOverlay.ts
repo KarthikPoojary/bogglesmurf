@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
+import type { PluginListenerHandle } from '@capacitor/core'
 import { Overlay } from '../plugins/OverlayPlugin'
 import { Swipe } from '../plugins/SwipePlugin'
 import { useBoggleStore } from '../store/boggleStore'
 import type { Solution } from '../solver/solver'
+import type { Trie } from '../solver/Trie'
 
 export function useOverlay() {
   const isSupported =
@@ -95,4 +97,88 @@ export function useOverlay() {
     isSupported, hasPermission, isVisible, isCalibrating,
     floatWords, hideOverlay, updateAlpha, showCalibrationGrid, hideCalibrationGrid,
   }
+}
+
+/**
+ * Subscribe to "captureReady" events from the native overlay's 📷 button.
+ * On each event: decode the screenshot, OCR, solve, push results back to the
+ * floating overlay — all without leaving the foreground app the user is in
+ * (Netflix). Mount once at the app level.
+ */
+export function useCaptureListener(trie: Trie | null) {
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || !trie) return
+    let active = true
+    let handle: PluginListenerHandle | null = null
+
+    const setStatus = (text: string, spinner = true) =>
+      Overlay.setStatus({ text, spinner }).catch(() => {})
+
+    const handleCapture = async (base64: string, mime: string) => {
+      const store = useBoggleStore.getState()
+      try {
+        // base64 → File (uses native fetch, works in WebView)
+        const blob = await (await fetch(`data:${mime};base64,${base64}`)).blob()
+        const file = new File([blob], 'capture.jpg', { type: mime })
+
+        const { ocrGrid } = await import('../ocr/gridOcr')
+        const { grid, gridSize } = await ocrGrid(
+          file,
+          (msg) => { setStatus(msg, true) },
+          store.gridSize,
+          { groqApiKey: store.groqApiKey, geminiApiKey: store.geminiApiKey },
+        )
+
+        // Sync grid into store (useful if user later opens BoggleSmurf)
+        store.setGridSize(gridSize)
+        for (let r = 0; r < gridSize; r++) {
+          for (let c = 0; c < gridSize; c++) {
+            store.setLetter(r, c, grid[r][c] || '')
+          }
+        }
+
+        setStatus('Solving…', true)
+        const { solve } = await import('../solver/solver')
+        const gridForSolver = grid.map((row) => row.map((l) => l || ' '))
+        const solutions: Solution[] = solve(gridForSolver, trie, store.minLen, store.maxLen)
+        store.setSolutions(solutions)
+
+        if (solutions.length === 0) {
+          setStatus('No words found — check calibration alignment', false)
+          return
+        }
+
+        // Push to overlay. Common-word set is derived per-capture.
+        const { loadCommonWords } = await import('../solver/loadCommonWords')
+        const commonWords = await loadCommonWords()
+        const words = solutions.map((s) => ({
+          word: s.word,
+          path: s.path.flatMap((c) => [c.row, c.col]),
+        }))
+        const commonList = solutions
+          .filter((s) => commonWords.has(s.word))
+          .map((s) => s.word)
+
+        await Overlay.setWords({ words, commonWords: commonList })
+        // setWords() in native code auto-clears the status panel
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Capture failed'
+        setStatus(msg.slice(0, 80), false)
+      }
+    }
+
+    const setup = async () => {
+      handle = await Overlay.addListener('captureReady', (e) => {
+        if (!active) return
+        // Fire and forget — handleCapture manages its own status updates
+        handleCapture(e.base64Image, e.mimeType)
+      })
+    }
+    setup()
+
+    return () => {
+      active = false
+      handle?.remove?.()
+    }
+  }, [trie])
 }

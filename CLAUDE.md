@@ -93,7 +93,7 @@ from `https://localhost`. `MOBILE=1 pnpm build` skips the PWA service worker (co
 
 The overlay is a `WindowManager.TYPE_APPLICATION_OVERLAY` foreground service with two modes:
 
-**Word list** (`ACTION_SHOW`): draggable 180×320dp panel, COM/UNQ/ALL tabs, ▶ per word.  
+**Word list** (`ACTION_SHOW`): draggable **220×320dp** panel, COM/UNQ/ALL tabs, **2-column GridView** of solutions (cap `MAX_WORDS=200`), with `📷 capture` + `✕ close` icons in the header and a "Scanning…" status overlay that appears during capture.
 **Calibration grid** (`ACTION_SHOW_CALIBRATION`): full-screen touch-passthrough, draws NxN cells at calibrated position, live-redraws as sliders move.
 
 **Swipe gesture flow:**
@@ -102,6 +102,16 @@ The overlay is a `WindowManager.TYPE_APPLICATION_OVERLAY` foreground service wit
 3. `Handler.postDelayed(swipeDelayMs)` — waits for Netflix word-found popup to clear
 4. `BoggleAccessibilityService.dispatchGesture(...)` — sends swipe at calibrated coordinates
 5. `GestureResultCallback.onCompleted` → `setTouchPassthrough(false)` — overlay resumes input
+
+**One-tap capture flow** (📷 button on the overlay, v0.10.0+):
+1. User taps 📷 in the overlay while in Netflix Boggle
+2. `OverlayService.triggerCapture()` hides the overlay (`setVisibility(INVISIBLE)` + touch-passthrough), waits 120ms
+3. `BoggleAccessibilityService.captureGridArea(bounds, callback)` calls `takeScreenshot()` (API 30+), crops the result to the calibrated grid bounds, JPEG-encodes, base64-encodes
+4. OverlayService restores overlay visibility and fires the registered `CaptureListener`
+5. `OverlayPlugin` emits `notifyListeners("captureReady", { base64Image, mimeType })`
+6. JS-side `useCaptureListener(trie)` (subscribed once in `App.tsx`) receives the event, builds a `File`, calls `ocrGrid(file, statusCb, gridSize, apiKeys)` → `solve(grid, trie, minLen, maxLen)` → `Overlay.setWords({...})`
+7. Native `setWords()` refreshes the GridView and auto-clears the status panel
+8. Throughout, `Overlay.setStatus({text, spinner})` drives the "Scanning…" panel
 
 ## Key files
 

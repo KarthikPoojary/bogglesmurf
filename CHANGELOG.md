@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-12 — One-tap capture from the floating overlay
+
+### Added
+- 📷 **Capture button on the floating overlay** — while in Netflix Boggle, one
+  tap screenshots the calibrated grid area, runs OCR (Groq → Gemini → ML Kit
+  fallback chain), solves, and refreshes the overlay's word list. Total round
+  trip ~1.5 s. The BoggleSmurf app no longer needs to be in foreground.
+- "Scanning…" status panel overlays the word list during the capture pipeline,
+  showing per-step progress (Capturing → Reading grid → ML Kit/Groq → Solving).
+- Accessibility service screenshot capability (`canTakeScreenshot=true`,
+  `AccessibilityService.takeScreenshot()` on API 30+). Cropped natively to the
+  calibrated grid bounds before JPEG-encoding to keep payloads small.
+- `Overlay.setStatus({text, spinner})` plugin method for JS to drive the
+  status panel; `Overlay.canCapture()` for pre-flight checks.
+- `'captureReady'` Capacitor event emitted from native; subscribed once in
+  App.tsx via the new `useCaptureListener(trie)` hook.
+
+### Changed
+- **Floating overlay redesigned**: 180dp → 220dp wide, single-column ListView
+  → 2-column GridView. `MAX_WORDS` cap raised 60 → 200 so 5×5/6×6 grids
+  aren't truncated. Word item layout tightened (12sp text, 28dp play button,
+  ellipsize-end) for the 2-column density.
+- Settings sheet gains a tooltip line pointing to the new 📷 overlay button.
+
 ## [0.9.0] - 2026-05-12 — Vision API OCR (Groq + Gemini)
 
 ### Added

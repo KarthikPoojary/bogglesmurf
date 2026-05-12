@@ -31,6 +31,19 @@ import java.util.Set;
 )
 public class OverlayPlugin extends Plugin {
 
+    @Override
+    public void load() {
+        super.load();
+        // When the overlay's 📷 button is tapped, OverlayService takes a screenshot
+        // and pushes a base64 image here; we forward it to JS via a Capacitor event.
+        OverlayService.setOnCaptureListener((base64, mime) -> {
+            JSObject data = new JSObject();
+            data.put("base64Image", base64);
+            data.put("mimeType", mime != null ? mime : "image/jpeg");
+            notifyListeners("captureReady", data);
+        });
+    }
+
     @PluginMethod
     public void hasPermission(PluginCall call) {
         JSObject ret = new JSObject();
@@ -157,6 +170,23 @@ public class OverlayPlugin extends Plugin {
     public void hideCalibration(PluginCall call) {
         startService(OverlayService.ACTION_HIDE_CALIBRATION);
         call.resolve();
+    }
+
+    /** Show / hide / update the "Scanning…" status panel in the overlay. */
+    @PluginMethod
+    public void setStatus(PluginCall call) {
+        String text = call.getString("text", "");
+        boolean spinner = Boolean.TRUE.equals(call.getBoolean("spinner", true));
+        OverlayService.setStatus(text == null || text.isEmpty() ? null : text, spinner);
+        call.resolve();
+    }
+
+    /** Pre-flight: can the user tap Capture right now? */
+    @PluginMethod
+    public void canCapture(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("ok", OverlayService.canCapture());
+        call.resolve(ret);
     }
 
     private void startService(String action) {

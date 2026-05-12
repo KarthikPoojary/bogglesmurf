@@ -8,6 +8,7 @@ import { SyncBanner } from './components/SyncBanner'
 import { ChangelogModal } from './components/ChangelogModal'
 import { useBoggleStore } from './store/boggleStore'
 import { useGridSync } from './hooks/useGridSync'
+import { useCaptureListener } from './hooks/useOverlay'
 import { loadDictionary } from './solver/loadDictionary'
 import { solve } from './solver/solver'
 import type { Trie } from './solver/Trie'
@@ -27,12 +28,16 @@ export default function App() {
   const [showChangelog, setShowChangelog] = useState(false)
 
   const { status: syncStatus, broadcastGrid, endSession } = useGridSync()
+  const [trie, setTrie] = useState<Trie | null>(null)
 
   useEffect(() => {
     loadDictionary()
-      .then((t) => { trieRef.current = t; setDictLoading(false) })
+      .then((t) => { trieRef.current = t; setTrie(t); setDictLoading(false) })
       .catch(() => { setDictError(true); setDictLoading(false) })
   }, [])
+
+  // Subscribe to the overlay's 📷 capture button while the app is alive
+  useCaptureListener(trie)
 
   // Derived state — declared before any useEffect that reads them
   const gridFilled = letters.flat().filter(Boolean).length === gridSize * gridSize

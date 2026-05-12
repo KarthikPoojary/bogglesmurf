@@ -114,6 +114,12 @@ export function SettingsSheet({
                   ? 'Switch to Netflix Boggle — drag the green grid to align it, resize from the bottom-right corner, then come back and tap Save.'
                   : 'Opens a draggable grid overlay so you can visually align it with the Boggle board.'}
               </p>
+
+              <p className="text-[10px] text-slate-600 mt-2 leading-relaxed">
+                <span className="text-slate-400">💡 Pro tip:</span> Once calibrated, tap{' '}
+                <span className="text-slate-300">📷</span> on the floating overlay to scan a new
+                round in one tap — without leaving Netflix.
+              </p>
             </>
           )}
         </div>

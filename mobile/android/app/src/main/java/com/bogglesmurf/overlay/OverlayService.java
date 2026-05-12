@@ -11,8 +11,11 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -21,7 +24,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.BaseAdapter;
-import android.widget.ListView;
+import android.widget.GridView;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -46,7 +49,7 @@ public class OverlayService extends Service {
 
     private static final String CHANNEL_ID  = "bogglesmurf_overlay";
     private static final int    NOTIF_ID    = 1001;
-    private static final int    MAX_WORDS   = 60;
+    private static final int    MAX_WORDS   = 200;
 
     // ── Static state (set from OverlayPlugin / SwipePlugin) ─────────────────
 
@@ -70,7 +73,11 @@ public class OverlayService extends Service {
         for (WordEntry e : entries) e.isDone = false;
         wordEntries = new ArrayList<>(entries);
         commonWordSet = new HashSet<>(common);
-        if (instance != null) instance.refreshWordList();
+        if (instance != null) {
+            instance.refreshWordList();
+            // A capture-driven refresh implicitly clears the scanning status
+            setStatus(null, false);
+        }
     }
 
     public static void setAlpha(float alpha) {
@@ -108,6 +115,87 @@ public class OverlayService extends Service {
             instance.updateCalibrationWindow();
             if (instance.calibrationView != null) instance.calibrationView.postInvalidate();
         }
+    }
+
+    // ── Capture flow ──────────────────────────────────────────────────────────
+
+    /** Callback fired when a fresh screenshot of the calibrated grid is ready (base64 JPEG). */
+    public interface CaptureListener { void onCapture(String base64Image, String mimeType); }
+    private static CaptureListener captureListener;
+
+    public static void setOnCaptureListener(CaptureListener listener) {
+        captureListener = listener;
+    }
+
+    /** Show or hide the "Scanning…" status overlay over the word list. */
+    public static void setStatus(String text, boolean spinner) {
+        if (instance == null || instance.overlayView == null) return;
+        instance.overlayView.post(() -> {
+            View statusBox = instance.overlayView.findViewById(R.id.overlay_status);
+            TextView statusText = instance.overlayView.findViewById(R.id.overlay_status_text);
+            View spinnerView = instance.overlayView.findViewById(R.id.overlay_status_spinner);
+            if (statusBox == null || statusText == null || spinnerView == null) return;
+            if (text == null || text.isEmpty()) {
+                statusBox.setVisibility(View.GONE);
+            } else {
+                statusText.setText(text);
+                spinnerView.setVisibility(spinner ? View.VISIBLE : View.GONE);
+                statusBox.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    /** True iff the overlay is visible AND the accessibility service is connected. */
+    public static boolean canCapture() {
+        return instance != null && instance.isShowing
+            && BoggleAccessibilityService.getInstance() != null;
+    }
+
+    /**
+     * Hide the overlay briefly, screenshot the calibrated grid area, then notify
+     * the registered capture listener. JS is responsible for the OCR → solve →
+     * setWords pipeline that follows.
+     */
+    private void triggerCapture() {
+        BoggleAccessibilityService svc = BoggleAccessibilityService.getInstance();
+        if (svc == null) {
+            setStatus("Enable BoggleSmurf accessibility service first", false);
+            return;
+        }
+        if (captureListener == null) {
+            setStatus("Capture handler not registered", false);
+            return;
+        }
+
+        // Compute pixel bounds of the calibrated grid
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int left   = Math.round(dm.widthPixels  * calGridLeftPct  / 100f);
+        int top    = Math.round(dm.heightPixels * calGridTopPct   / 100f);
+        int width  = Math.round(dm.widthPixels  * calGridWidthPct / 100f);
+        // Calibration grid is rendered square (height == width)
+        Rect bounds = new Rect(left, top, left + width, top + width);
+
+        setStatus("Capturing…", true);
+
+        // Make overlay invisible & non-interactive so it doesn't appear in the screenshot
+        if (overlayView != null) overlayView.setVisibility(View.INVISIBLE);
+        setTouchPassthrough(true);
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            svc.captureGridArea(bounds, (base64, mime) -> {
+                // Restore overlay visibility immediately so user sees status
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (overlayView != null) overlayView.setVisibility(View.VISIBLE);
+                    setTouchPassthrough(false);
+                });
+                if (base64 == null) {
+                    setStatus("Capture failed — check accessibility permission", false);
+                    return;
+                }
+                setStatus("Reading grid…", true);
+                if (captureListener != null) captureListener.onCapture(base64, mime);
+            });
+        }, 120);
     }
 
     // ── WordEntry ─────────────────────────────────────────────────────────────
@@ -178,7 +266,7 @@ public class OverlayService extends Service {
             : WindowManager.LayoutParams.TYPE_PHONE;
 
         overlayParams = new WindowManager.LayoutParams(
-            dpToPx(180), dpToPx(320),
+            dpToPx(220), dpToPx(320),
             layerType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -191,15 +279,16 @@ public class OverlayService extends Service {
             removeOverlay();
             stopSelf();
         });
+        overlayView.findViewById(R.id.overlay_capture).setOnClickListener(v -> triggerCapture());
         overlayView.findViewById(R.id.overlay_header).setOnTouchListener(new HeaderDragListener());
 
         overlayView.findViewById(R.id.tab_com).setOnClickListener(v -> switchTab("COM"));
         overlayView.findViewById(R.id.tab_unq).setOnClickListener(v -> switchTab("UNQ"));
         overlayView.findViewById(R.id.tab_all).setOnClickListener(v -> switchTab("ALL"));
 
-        ListView listView = overlayView.findViewById(R.id.overlay_words);
+        GridView grid = overlayView.findViewById(R.id.overlay_words);
         wordAdapter = new WordAdapter();
-        listView.setAdapter(wordAdapter);
+        grid.setAdapter(wordAdapter);
 
         windowManager.addView(overlayView, overlayParams);
         isShowing = true;

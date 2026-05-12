@@ -16,7 +16,10 @@ export interface OverlayPlugin {
   setAlpha(opts: { alpha: number }): Promise<void>
   showCalibration(): Promise<void>
   hideCalibration(): Promise<void>
+  setStatus(opts: { text: string; spinner?: boolean }): Promise<void>
+  canCapture(): Promise<{ ok: boolean }>
   addListener(event: 'wordTap', cb: (e: { word: string }) => void): Promise<PluginListenerHandle>
+  addListener(event: 'captureReady', cb: (e: { base64Image: string; mimeType: string }) => void): Promise<PluginListenerHandle>
 }
 
 export const Overlay = registerPlugin<OverlayPlugin>('Overlay')
