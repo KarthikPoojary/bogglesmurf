@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-05-12 — Per-row OCR fallback for missed cells
+
+### Added
+- Per-row OCR fallback: any row that still has empty cells after per-cell OCR
+  is re-OCRed as a single text strip. ML Kit's text-detection works much
+  better on a sequence of letters than on an isolated single character, so
+  letters like `I` and `O` that get skipped in cell mode are usually picked
+  up here. Only fills in empty cells; never overwrites a per-cell hit.
+
 ## [0.8.3] - 2026-05-12 — Inverted-color cell OCR with fallback
 
 ### Changed

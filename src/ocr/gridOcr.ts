@@ -375,6 +375,58 @@ async function ocrSingleCell(
   return await ocrCanvasOnce(original)
 }
 
+// Per-row OCR fallback: when individual cells return empty (common for I and O
+// in isolation), OCR the whole row as a single text strip. ML Kit's text
+// detection is much more reliable on a sequence of letters than a single one.
+// Returns an array of `gridSize` letters, or empty array if the OCR can't
+// confidently produce that many characters.
+async function ocrRow(
+  fullCanvas: HTMLCanvasElement, sx: number, sy: number, sw: number, sh: number, gridSize: number,
+): Promise<string[]> {
+  const inset = 0.03
+  const ix = sx + sw * inset, iy = sy + sh * inset
+  const iw = sw - 2 * sw * inset, ih = sh - 2 * sh * inset
+  const rowCanvas = document.createElement('canvas')
+  // Tall and wide enough that ML Kit treats this as readable text
+  rowCanvas.width = Math.max(1, Math.round(iw * 1.5))
+  rowCanvas.height = Math.max(1, Math.round(ih * 1.5))
+  const ctx = rowCanvas.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, rowCanvas.width, rowCanvas.height)
+  ctx.drawImage(fullCanvas, ix, iy, iw, ih, 0, 0, rowCanvas.width, rowCanvas.height)
+  // Invert: white-on-dark tiles → dark-on-light text
+  const id = ctx.getImageData(0, 0, rowCanvas.width, rowCanvas.height)
+  const d = id.data
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = 255 - d[i]
+    d[i + 1] = 255 - d[i + 1]
+    d[i + 2] = 255 - d[i + 2]
+  }
+  ctx.putImageData(id, 0, 0)
+  const base64 = rowCanvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+
+  const { CapacitorPluginMlKitTextRecognition } = await import(
+    '@pantrist/capacitor-plugin-ml-kit-text-recognition'
+  )
+  try {
+    const result = await CapacitorPluginMlKitTextRecognition.detectText({ base64Image: base64 })
+    let allLetters = ''
+    for (const block of result.blocks) {
+      for (const line of block.lines) {
+        for (const el of line.elements) {
+          allLetters += normalizeLetter(el.text)
+        }
+      }
+    }
+    if (allLetters.length === gridSize) return allLetters.split('')
+    // If we got more chars than expected, trim (handles "QU" tiles producing 2 chars)
+    if (allLetters.length === gridSize + 1) return allLetters.slice(0, gridSize).split('')
+    return []
+  } catch {
+    return []
+  }
+}
+
 async function ocrWithMlKitPerCell(
   file: File, gridSize: 4 | 5 | 6, onProgress?: (msg: OcrProgressMsg) => void,
 ): Promise<{ grid: string[][]; gridSize: 4 | 5 | 6 }> {
@@ -416,9 +468,34 @@ async function ocrWithMlKitPerCell(
     }
   }
 
-  const filled = grid.flat().filter(Boolean).length
+  let filled = grid.flat().filter(Boolean).length
+  onProgress?.(`After per-cell: ${filled}/${total} filled`)
+
+  // Per-row fallback for rows with empty cells
+  const rowsNeedingHelp: number[] = []
+  for (let r = 0; r < gridSize; r++) {
+    if (grid[r].some((c) => !c)) rowsNeedingHelp.push(r)
+  }
+
+  if (rowsNeedingHelp.length > 0) {
+    onProgress?.(`Per-row fallback on ${rowsNeedingHelp.length} row(s)…`)
+    const rowResults = await Promise.all(
+      rowsNeedingHelp.map((r) => ocrRow(fullCanvas, 0, r * cellH, fw, cellH, gridSize)),
+    )
+    for (let i = 0; i < rowsNeedingHelp.length; i++) {
+      const r = rowsNeedingHelp[i]
+      const rowLetters = rowResults[i]
+      if (rowLetters.length === gridSize) {
+        for (let c = 0; c < gridSize; c++) {
+          if (!grid[r][c] && rowLetters[c]) grid[r][c] = rowLetters[c]
+        }
+      }
+    }
+    filled = grid.flat().filter(Boolean).length
+    onProgress?.(`After row fallback: ${filled}/${total} filled`)
+  }
+
   onProgress?.(`Grid: ${grid.map((row) => row.map((c) => c || '·').join('')).join(' / ')}`)
-  onProgress?.(`Filled ${filled}/${total} cells`)
 
   return { grid, gridSize }
 }
